@@ -617,7 +617,7 @@ def main():
 
                     ax.set_xlabel(selected_x_display, fontsize=10)
                     ax.set_ylabel("数值", fontsize=10)
-                    ax.set_title(f"{selected_dataset} - {plot_type}", fontsize=12, fontweight='bold')
+                   # ax.set_title(f"{selected_dataset} - {plot_type}", fontsize=12, fontweight='bold')
 
                     # ========== 图例放在标题下方、图表上方（顶部居中，自动换行） ==========
                     # 根据 Y 轴列数动态设置图例列数（最多 5 列，避免过于拥挤）
