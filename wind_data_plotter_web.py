@@ -8,7 +8,6 @@ import io
 import os
 import glob
 import tempfile
-import numpy as np
 
 # ================== 中英文列名映射表（请将您的完整映射粘贴至此）==================
 COLUMN_CN_MAP = {
@@ -369,9 +368,9 @@ def get_display_name(eng_name, translate=True):
     cn = COLUMN_CN_MAP.get(eng_name, "")
     return f"{cn} ({eng_name})" if cn else eng_name
 
-# -------------------------- 严格使用指定字体（此处改为微软雅黑）--------------------------
+# -------------------------- 静默加载字体（无任何输出）--------------------------
 def load_custom_font():
-    """加载 fonts 文件夹下的微软雅黑字体（msyh.ttf/ttc）"""
+    """静默加载 fonts 文件夹下的微软雅黑字体，不显示任何消息"""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     fonts_dir = os.path.join(base_dir, "fonts")
     font_path = None
@@ -391,12 +390,9 @@ def load_custom_font():
             font_name = prop.get_name()
             plt.rcParams['font.family'] = font_name
             plt.rcParams['axes.unicode_minus'] = False
-            st.success(f"✅ 已加载字体：{os.path.basename(font_path)}（{font_name}）")
-        except Exception as e:
-            st.error(f"❌ 加载字体失败：{e}")
-    else:
-        st.warning("⚠️ 未找到微软雅黑字体文件（msyh.ttf/ttc），请放入 fonts 文件夹")
-        st.warning("将使用默认字体，中文可能显示为方框")
+        except Exception:
+            pass  # 静默失败，使用默认字体
+    # 如果未找到字体，不做任何设置（使用默认，不输出警告）
 
 # -------------------------- 核心工具函数（保持不变）--------------------------
 def detect_encoding(file_path):
@@ -474,6 +470,7 @@ def parse_file_sections(file_path, encoding):
 
 # -------------------------- Streamlit 主应用 --------------------------
 def main():
+    # 静默加载字体（无任何输出）
     load_custom_font()
 
     st.set_page_config(page_title="金风风机B文件绘图工具", page_icon="🌬️", layout="wide")
@@ -481,11 +478,10 @@ def main():
 
     with st.sidebar:
         st.header("📁 文件上传")
-        uploaded_file = st.file_uploader("选择B文件（.txt/.csv）", type=["txt", "csv"],
-                                         help="支持金风风机B文件格式的TXT/CSV文件")
+        uploaded_file = st.file_uploader("选择B文件（.txt/.csv）", type=["txt", "csv"])
         st.divider()
         st.header("⚙️ 绘图配置")
-        translate = st.checkbox("显示中文列名", value=True, help="勾选后列名显示为「中文(英文)」格式")
+        translate = st.checkbox("显示中文列名", value=True)
         plot_type = st.radio("绘图类型", ["折线图", "散点图"], horizontal=True)
         show_preview = st.checkbox("显示数据预览", value=False)
 
@@ -530,87 +526,87 @@ def main():
                 df_digital_raw.columns = digital_col_names
                 df_digital = df_digital_raw.apply(pd.to_numeric, errors='coerce')
 
-            dataset_options = ["模拟信号"]
-            if has_digital:
-                dataset_options.append("数字信号")
-            selected_dataset = st.selectbox("📊 选择数据集", dataset_options)
+            # ========== 紧凑布局：数据集 + 轴配置 + 缩放 ==========
+            with st.container():
+                st.markdown("### 📐 绘图设置")
+                # 第一行：数据集选择
+                dataset_options = ["模拟信号"]
+                if has_digital:
+                    dataset_options.append("数字信号")
+                selected_dataset = st.selectbox("选择数据集", dataset_options, key="dataset")
 
-            if selected_dataset == "模拟信号":
-                df = df_analog
-                col_names = analog_col_names
-            else:
-                df = df_digital
-                col_names = digital_col_names
-
-            st.success(f"✅ 读取成功：{selected_dataset} - {len(df)}行 x {len(df.columns)}列")
-
-            if show_preview:
-                with st.expander("📈 数据预览（前10行）", expanded=True):
-                    st.dataframe(df.head(10), use_container_width=True)
-
-            display_names = [get_display_name(col, translate) for col in col_names]
-            col_name_map = {disp: orig for disp, orig in zip(display_names, col_names)}
-
-            st.subheader("🎯 轴配置")
-            col1, col2 = st.columns(2)
-            with col1:
-                default_x_display = get_display_name("timestamp", translate) if "timestamp" in col_names else display_names[0]
-                selected_x_display = st.selectbox("X轴列（通常选时间戳）", display_names, index=display_names.index(default_x_display))
-                x_col = col_name_map[selected_x_display]
-
-            with col2:
-                default_y_display = [get_display_name("wind_speed", translate)] if "wind_speed" in col_names else []
-                selected_y_display = st.multiselect("Y轴列（可多选）", display_names, default=default_y_display)
-                y_cols = [col_name_map[disp] for disp in selected_y_display]
-
-            # -------------------------- 新增：图表缩放控件 --------------------------
-            st.subheader("🔍 图表缩放（X轴范围）")
-            enable_zoom = st.checkbox("启用X轴范围限制（用于放大图表）", value=False)
-            x_min_val = None
-            x_max_val = None
-            if enable_zoom and x_col in df.columns:
-                # 获取X列的有效数值范围
-                x_data = df[x_col].dropna()
-                if len(x_data) > 0:
-                    x_min_global = float(x_data.min())
-                    x_max_global = float(x_data.max())
-                    # 使用滑块选择范围
-                    col_range = st.columns(2)
-                    with col_range[0]:
-                        x_min_val = st.number_input(f"X轴最小值（{selected_x_display}）", value=x_min_global, format="%.6f")
-                    with col_range[1]:
-                        x_max_val = st.number_input(f"X轴最大值（{selected_x_display}）", value=x_max_global, format="%.6f")
-                    if x_min_val >= x_max_val:
-                        st.error("最小值必须小于最大值，已自动交换")
-                        x_min_val, x_max_val = x_max_val, x_min_val
-                    # 可选：添加“重置范围”按钮
-                    if st.button("重置X轴范围"):
-                        x_min_val = x_min_global
-                        x_max_val = x_max_global
-                        st.experimental_rerun()
+                if selected_dataset == "模拟信号":
+                    df = df_analog
+                    col_names = analog_col_names
                 else:
-                    st.warning("X轴列无有效数据，无法使用缩放")
-                    enable_zoom = False
+                    df = df_digital
+                    col_names = digital_col_names
 
-            # 绘图按钮
-            if st.button("🚀 生成图表", type="primary") and y_cols:
-                # 基础数据
+                # 数据预览（可选）
+                if show_preview:
+                    with st.expander("📈 数据预览（前10行）"):
+                        st.dataframe(df.head(10), use_container_width=True)
+
+                # 轴配置（X/Y 放在同一行）
+                display_names = [get_display_name(col, translate) for col in col_names]
+                col_name_map = {disp: orig for disp, orig in zip(display_names, col_names)}
+
+                col_axis1, col_axis2 = st.columns(2)
+                with col_axis1:
+                    default_x_display = get_display_name("timestamp", translate) if "timestamp" in col_names else display_names[0]
+                    selected_x_display = st.selectbox("X轴列", display_names, index=display_names.index(default_x_display))
+                    x_col = col_name_map[selected_x_display]
+                with col_axis2:
+                    default_y_display = [get_display_name("wind_speed", translate)] if "wind_speed" in col_names else []
+                    selected_y_display = st.multiselect("Y轴列（多选）", display_names, default=default_y_display)
+                    y_cols = [col_name_map[disp] for disp in selected_y_display]
+
+                # 图表缩放（紧凑显示）
+                enable_zoom = st.checkbox("启用X轴范围限制（放大局部）", value=False)
+                x_min_val = None
+                x_max_val = None
+                if enable_zoom and x_col in df.columns:
+                    x_data = df[x_col].dropna()
+                    if len(x_data) > 0:
+                        x_min_global = float(x_data.min())
+                        x_max_global = float(x_data.max())
+                        # 使用三列布局，将两个输入框和重置按钮放在一行
+                        zoom_col1, zoom_col2, zoom_col3 = st.columns(3)
+                        with zoom_col1:
+                            x_min_val = st.number_input(f"{selected_x_display} 最小值", value=x_min_global, format="%.6f")
+                        with zoom_col2:
+                            x_max_val = st.number_input(f"{selected_x_display} 最大值", value=x_max_global, format="%.6f")
+                        with zoom_col3:
+                            if st.button("重置范围"):
+                                x_min_val = x_min_global
+                                x_max_val = x_max_global
+                                st.experimental_rerun()
+                        if x_min_val >= x_max_val:
+                            st.error("最小值必须小于最大值")
+                            enable_zoom = False
+                    else:
+                        enable_zoom = False
+                        st.warning("X轴列无有效数据，无法缩放")
+
+            # 生成图表按钮（放在紧凑块下方）
+            col_btn_left, col_btn_center, col_btn_right = st.columns([1,2,1])
+            with col_btn_center:
+                generate = st.button("🚀 生成图表", type="primary", use_container_width=True)
+
+            if generate and y_cols:
                 plot_df = df[[x_col] + y_cols].dropna()
                 if len(plot_df) == 0:
-                    st.error("❌ 所选列无有效数据（全为缺失值），无法绘图！")
+                    st.error("❌ 所选列无有效数据，无法绘图！")
                 else:
-                    # 应用X轴范围限制（如果启用）
                     if enable_zoom and x_min_val is not None and x_max_val is not None:
                         mask = (plot_df[x_col] >= x_min_val) & (plot_df[x_col] <= x_max_val)
                         plot_df = plot_df[mask]
                         if len(plot_df) == 0:
                             st.warning("当前X轴范围内无数据，请扩大范围")
-                            # 不绘图，返回
                             st.stop()
 
                     fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
                     colors = list(mcolors.TABLEAU_COLORS.values())
-
                     for idx, y_col in enumerate(y_cols):
                         y_display = get_display_name(y_col, translate)
                         if plot_type == "折线图":
@@ -621,7 +617,6 @@ def main():
                             ax.scatter(plot_df[x_col], plot_df[y_col],
                                       label=y_display, color=colors[idx % len(colors)],
                                       s=2, alpha=0.6)
-
                     ax.set_xlabel(selected_x_display, fontsize=10)
                     ax.set_ylabel("数值", fontsize=10)
                     ax.set_title(f"{selected_dataset} - {plot_type}", fontsize=12, fontweight='bold')
@@ -629,7 +624,10 @@ def main():
                     ax.grid(True, alpha=0.3)
                     plt.tight_layout()
 
-                    st.pyplot(fig)
+                    # 图表居中显示
+                    center_col1, center_col2, center_col3 = st.columns([1, 6, 1])
+                    with center_col2:
+                        st.pyplot(fig)
 
         except Exception as e:
             st.error(f"❌ 处理文件失败：{str(e)}")
@@ -638,17 +636,10 @@ def main():
         st.info("👆 请在左侧侧边栏上传金风风机B文件（.txt/.csv格式）")
         with st.expander("📖 使用说明", expanded=True):
             st.markdown("""
-            ### 金风风机B文件绘图工具 使用说明
-            1. 上传文件后，选择数据集、X/Y轴列；
-            2. **新增功能**：勾选「启用X轴范围限制」，可手动输入X轴的最小/最大值，实现图表水平缩放（放大查看局部细节）；
-            3. 点击「生成图表」即可看到缩放后的图形；
-            4. 其余功能（中英文列名、预览等）保持不变。
-            """)
-        with st.expander("ℹ️ 关于", expanded=False):
-            st.markdown("""
-            金风风机B文件绘图工具（含缩放控件）  
-            版本：2.4  
-            字体：微软雅黑（需放入 fonts/msyh.ttf）  
+            ### 使用说明
+            1. 上传文件后，在「绘图设置」区域选择数据集、X/Y轴；
+            2. 可选「启用X轴范围限制」进行局部放大；
+            3. 点击生成图表，图形会自动居中显示。
             """)
 
 if __name__ == "__main__":
