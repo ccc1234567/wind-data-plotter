@@ -580,9 +580,10 @@ def main():
                     st.error("❌ 所选列无有效数据（全为缺失值），无法绘图！")
                 else:
                     # 创建图表
-                    fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
-                    plt.rcParams['font.sans-serif'] = ['SimHei', 'PingFang SC', 'Noto Sans CJK SC']
+                    plt.rcParams['font.family'] = ['WenQuanYi Micro Hei', 'DejaVu Sans']
                     plt.rcParams['axes.unicode_minus'] = False
+                    plt.rcParams['font.size'] = 12
+                    fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
                     colors = list(mcolors.TABLEAU_COLORS.values()) + list(mcolors.BASE_COLORS.values())
 
                     for idx, y_col in enumerate(y_cols):
