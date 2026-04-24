@@ -579,10 +579,13 @@ def main():
                 if len(plot_df) == 0:
                     st.error("❌ 所选列无有效数据（全为缺失值），无法绘图！")
                 else:
-                    # 创建图表
-                    plt.rcParams['font.family'] = ['WenQuanYi Micro Hei', 'DejaVu Sans']
+                    import matplotlib.font_manager as fm
                     plt.rcParams['axes.unicode_minus'] = False
-                    plt.rcParams['font.size'] = 12
+                    font_prop = fm.FontProperties(fname='/usr/share/fonts/truetype/wqy/wqy-microhei.ttc', size=12)
+            # ==============================================
+
+
+                    # 创建图表
                     fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
                     colors = list(mcolors.TABLEAU_COLORS.values())
 
