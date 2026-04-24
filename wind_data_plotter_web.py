@@ -571,9 +571,9 @@ def main():
                         x_max_global = float(x_data.max())
                         zoom_col1, zoom_col2, zoom_col3 = st.columns(3)
                         with zoom_col1:
-                            x_min_val = st.number_input(f"{selected_x_display} 最小值", value=x_min_global, format="%.6f")
+                            x_min_val = st.number_input(f"{selected_x_display} 最小值", value=x_min_global, format="%.2f")
                         with zoom_col2:
-                            x_max_val = st.number_input(f"{selected_x_display} 最大值", value=x_max_global, format="%.6f")
+                            x_max_val = st.number_input(f"{selected_x_display} 最大值", value=x_max_global, format="%.2f")
                         with zoom_col3:
                             if st.button("重置范围"):
                                 x_min_val = x_min_global
