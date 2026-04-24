@@ -473,8 +473,8 @@ def main():
     # 静默加载字体（无任何输出）
     load_custom_font()
 
-    st.set_page_config(page_title="金风风机B文件绘图工具", page_icon="🌬️", layout="wide")
-    st.title("🌬️ 金风风机B文件绘图工具")
+    st.set_page_config(page_title="B文件绘图工具", page_icon="🌬️", layout="wide")
+    st.title("🌬️ 欢迎使用B文件绘图工具")
 
     with st.sidebar:
         st.header("📁 文件上传")
@@ -633,7 +633,7 @@ def main():
             st.error(f"❌ 处理文件失败：{str(e)}")
             st.exception(e)
     else:
-        st.info("👆 请在左侧侧边栏上传金风风机B文件（.txt/.csv格式）")
+        st.info("👆 请在左侧侧边栏上传B文件（.txt/.csv格式）")
         with st.expander("📖 使用说明", expanded=True):
             st.markdown("""
             ### 使用说明
