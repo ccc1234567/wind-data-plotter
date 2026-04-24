@@ -471,8 +471,8 @@ def parse_file_sections(file_path, encoding):
 def main():
     load_custom_font()
 
-    st.set_page_config(page_title="金风风机B文件绘图工具", page_icon="🌬️", layout="wide")
-    st.title("🌬️ 金风风机B文件绘图工具")
+    st.set_page_config(page_title="B文件绘图工具", page_icon="🌬️", layout="wide")
+    st.title("🌬️ 欢迎使用B文件绘图工具")
 
     with st.sidebar:
         st.header("📁 文件上传")
