@@ -384,7 +384,7 @@ def load_custom_font():
         for ext in ['*.ttf', '*.otf', '*.ttc']:
             matches = glob.glob(os.path.join(fonts_dir, ext))
             for match in matches:
-                if 'NotoSansHK' in os.path.basename(match):
+                if 'msyh' in os.path.basename(match).lower():
                     font_path = match
                     break
             if font_path:
