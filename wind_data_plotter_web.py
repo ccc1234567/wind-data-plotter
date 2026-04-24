@@ -363,7 +363,7 @@ COLUMN_CN_MAP = {
     "MinPitchEvent": "最小桨角事件",
     "rTowAccAZero_g": "塔筒A向加速度零点(g)",
     "rTowAccBZero_g": "塔筒B向加速度零点(g)",
-
+}
 def get_display_name(eng_name, translate=True):
     """获取列的显示名称（中文/英文）"""
     if not translate:
