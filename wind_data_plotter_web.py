@@ -375,7 +375,7 @@ def load_custom_font():
     fonts_dir = os.path.join(base_dir, "fonts")
     font_path = None
     if os.path.exists(fonts_dir):
-        for ext in ['*.ttf', '*.otf', '*.ttc']:
+        for ext in ['*.ttf', '*.otf', ''.ttc']:
             matches = glob.glob(os.path.join(fonts_dir, ext))
             for match in matches:
                 if 'msyh' in os.path.basename(match).lower():
@@ -528,27 +528,15 @@ def main():
             with st.container():
                 st.markdown("### 📐 绘图设置")
 
-                # 准备数据集选项
                 dataset_options = ["模拟信号"]
                 if has_digital:
                     dataset_options.append("数字信号")
                 
-                # 初始化 df 和 col_names（稍后根据选择更新）
-                # 先显示三个选择框，动态更新数据
-                # 由于需要根据数据集更新列名，这里先使用一个占位符，然后根据选择重新读取
-                # 简便方法：将数据集选择放在第一个列，当改变时重新运行逻辑
-                # 但为了流畅，我们使用 session_state 或者直接使用回调，这里使用简单方法：每次选择后重新解析列名
-                # 注意：因为 df 和 col_names 依赖于数据集，需要在选择后重新赋值。
-                # 我们将三个控件放在一行，数据集变化时，下面的列名选择框需要重新生成。
-                # Streamlit 的机制是重新运行脚本，所以直接写即可。
-                
-                # 使用三列布局（比例为 1:2:3，因为 Y 轴是多选需要更多空间）
                 col_dataset, col_x, col_y = st.columns([1, 2, 3])
                 
                 with col_dataset:
                     selected_dataset = st.selectbox("选择数据集", dataset_options, key="dataset_select")
                 
-                # 根据所选数据集获取对应的 df 和列名
                 if selected_dataset == "模拟信号":
                     df = df_analog
                     col_names = analog_col_names
@@ -556,7 +544,6 @@ def main():
                     df = df_digital
                     col_names = digital_col_names
                 
-                # 生成显示名称
                 display_names = [get_display_name(col, translate) for col in col_names]
                 col_name_map = {disp: orig for disp, orig in zip(display_names, col_names)}
                 
@@ -570,12 +557,10 @@ def main():
                     selected_y_display = st.multiselect("Y轴列（多选）", display_names, default=default_y_display, key="y_axis")
                     y_cols = [col_name_map[disp] for disp in selected_y_display]
 
-                # 数据预览（可选）
                 if show_preview:
                     with st.expander("📈 数据预览（前10行）"):
                         st.dataframe(df.head(10), use_container_width=True)
 
-                # 图表缩放（紧凑显示）
                 enable_zoom = st.checkbox("启用X轴范围限制（放大局部）", value=False)
                 x_min_val = None
                 x_max_val = None
@@ -601,7 +586,6 @@ def main():
                         enable_zoom = False
                         st.warning("X轴列无有效数据，无法缩放")
 
-            # 生成图表按钮居中
             col_btn_left, col_btn_center, col_btn_right = st.columns([1, 2, 1])
             with col_btn_center:
                 generate = st.button("🚀 生成图表", type="primary", use_container_width=True)
@@ -630,10 +614,16 @@ def main():
                             ax.scatter(plot_df[x_col], plot_df[y_col],
                                       label=y_display, color=colors[idx % len(colors)],
                                       s=2, alpha=0.6)
+
                     ax.set_xlabel(selected_x_display, fontsize=10)
                     ax.set_ylabel("数值", fontsize=10)
                     ax.set_title(f"{selected_dataset} - {plot_type}", fontsize=12, fontweight='bold')
-                    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+
+                    # ========== 图例放在标题下方、图表上方（顶部居中，自动换行） ==========
+                    # 根据 Y 轴列数动态设置图例列数（最多 5 列，避免过于拥挤）
+                    ncol = min(len(y_cols), 5)
+                    ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.12), ncol=ncol, fontsize=8)
+
                     ax.grid(True, alpha=0.3)
                     plt.tight_layout()
 
@@ -646,13 +636,13 @@ def main():
             st.error(f"❌ 处理文件失败：{str(e)}")
             st.exception(e)
     else:
-        st.info("👆 请在左侧侧边栏上传金风风机B文件（.txt/.csv格式）")
+        st.info("👆 请在左侧侧边栏上传B文件（.txt/.csv格式）")
         with st.expander("📖 使用说明", expanded=True):
             st.markdown("""
             ### 使用说明
             1. 上传文件后，在「绘图设置」区域选择数据集、X轴、Y轴（三个控件在同一行）；
             2. 可选「启用X轴范围限制」进行局部放大；
-            3. 点击生成图表，图形会自动居中显示。
+            3. 点击生成图表，图形会自动居中显示，图例会显示在标题下方。
             """)
 
 if __name__ == "__main__":
