@@ -1,8 +1,5 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'Noto Sans CJK SC']
-plt.rcParams['axes.unicode_minus'] = False
 import matplotlib.colors as mcolors
 import matplotlib.font_manager as fm
 import sys
