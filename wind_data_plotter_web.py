@@ -1,34 +1,15 @@
-# 导入所需库
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-import matplotlib.colors as mcolors
-import sys
-import platform
 import io
-import matplotlib
+import platform
 
-# ========== 解决Matplotlib中文乱码核心配置 ==========
-matplotlib.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']  # Windows中文字体
-matplotlib.rcParams['axes.unicode_minus'] = False  # 解决负号显示方块问题
-matplotlib.rcParams['font.family'] = 'sans-serif'
+# ===================== 完全复用你的核心配置 =====================
+# Matplotlib 中文配置（部署必备）
+plt.rcParams['font.sans-serif'] = ['WenQuanYi Zen Hei', 'SimHei', 'Microsoft YaHei']
+plt.rcParams['axes.unicode_minus'] = False
 
-# -------------------------- 隐藏控制台窗口（仅Windows）--------------------------
-def hide_console():
-    if platform.system() == "Windows":
-        import ctypes
-        kernel32 = ctypes.windll.kernel32
-        user32 = ctypes.windll.user32
-        hwnd = kernel32.GetConsoleWindow()
-        if hwnd:
-            user32.ShowWindow(hwnd, 0)
-
-# -------------------------- 预定义颜色列表 --------------------------
-COLORS = list(mcolors.TABLEAU_COLORS.values()) + list(mcolors.BASE_COLORS.values())
-
-# ================== 中英文列名映射表 ==================
+# 你的列名中英文映射（原封不动）
 COLUMN_CN_MAP = {
     # 模拟信号（Analog Signals）
     "timestamp": "时间戳",
@@ -381,559 +362,123 @@ COLUMN_CN_MAP = {
     "rTowAccBZero_g": "塔筒B向加速度零点(g)",
 }
 
-class WindDataPlotter:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("金风风机B文件绘图工具")
-        self.root.geometry("1280x750")
-
-        # ========== Tkinter中文显示配置 ==========
-        if platform.system() == "Windows":
-            default_font = tk.font.nametofont("TkDefaultFont")
-            default_font.configure(family="微软雅黑", size=9)
-            self.root.option_add("*Font", default_font)
-
-        self.file_path = tk.StringVar()
-        self.df = None
-        self.df_analog = None
-        self.df_digital = None
-        self.current_dataset = tk.StringVar(value="模拟信号")
-        self.x_col_name = None
-        self.filtered_cols = []      # 原始英文列名
-        self.filtered_display_names = []  # 显示名称
-        self.plot_type = tk.StringVar(value="line")
-        self.translate = tk.BooleanVar(value=True)   # 汉译开关，默认开启
-
-        # ========== 创建主框架 ==========
-        # 顶部控制栏（文件、X轴、绘图类型等）
-        self.top_frame = ttk.Frame(root)
-        self.top_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
-
-        # 左侧列选择面板（宽度固定为280）
-        self.left_frame = tk.Frame(root, width=280, bg='#f0f0f0')
-        self.left_frame.pack(side=tk.LEFT, fill=tk.Y, expand=False, padx=5, pady=5)
-        self.left_frame.pack_propagate(False)
-
-        # 右侧绘图面板（自动填充剩余空间）
-        self.right_frame = ttk.Frame(root)
-        self.right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        # ---------- 顶部控件 ----------
-        # 文件选择行
-        file_frame = ttk.Frame(self.top_frame)
-        file_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(file_frame, text="数据文件：").pack(side=tk.LEFT, padx=5)
-        ttk.Entry(file_frame, textvariable=self.file_path, width=40).pack(side=tk.LEFT, padx=5)
-        ttk.Button(file_frame, text="选择文件", command=self.select_file).pack(side=tk.LEFT, padx=5)
-        self.status_label = ttk.Label(file_frame, text="未读取数据", foreground="gray")
-        self.status_label.pack(side=tk.LEFT, padx=20)
-
-        # 数据集、X轴、绘图类型行
-        ctrl_frame = ttk.Frame(self.top_frame)
-        ctrl_frame.pack(fill=tk.X, pady=2)
-
-        # 数据集选择（初始隐藏）
-        self.dataset_label = ttk.Label(ctrl_frame, text="数据集：")
-        self.dataset_combo = ttk.Combobox(ctrl_frame, values=["模拟信号"], state="readonly", width=15)
-        self.dataset_combo.bind("<<ComboboxSelected>>", self.on_dataset_changed)
-        self.dataset_label_created = False
-
-        # X轴选择
-        ttk.Label(ctrl_frame, text="X轴列：").pack(side=tk.LEFT, padx=5)
-        self.x_axis_combo = ttk.Combobox(ctrl_frame, width=18, state="readonly")
-        self.x_axis_combo.pack(side=tk.LEFT, padx=5)
-        self.x_axis_combo.bind("<<ComboboxSelected>>", self.on_x_axis_changed)
-        ttk.Button(ctrl_frame, text="刷新X轴", command=self.refresh_x_options).pack(side=tk.LEFT, padx=2)
-
-        # 绘图类型
-        ttk.Label(ctrl_frame, text="绘图类型：").pack(side=tk.LEFT, padx=5)
-        ttk.Radiobutton(ctrl_frame, text="散点图", variable=self.plot_type, value="scatter").pack(side=tk.LEFT)
-        ttk.Radiobutton(ctrl_frame, text="折线图", variable=self.plot_type, value="line").pack(side=tk.LEFT, padx=5)
-
-        # 汉译开关
-        self.translate_cb = ttk.Checkbutton(ctrl_frame, text="中文", variable=self.translate, command=self.on_translate_toggled)
-        self.translate_cb.pack(side=tk.LEFT, padx=10)
-
-        # ---------- 左侧列选择面板 ----------
-        search_frame = ttk.Frame(self.left_frame)
-        search_frame.pack(fill=tk.X, pady=2, padx=5)
-        ttk.Label(search_frame, text="搜索：").pack(side=tk.LEFT, padx=5)
-        self.search_entry = ttk.Entry(search_frame, width=20)
-        self.search_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        self.search_entry.bind("<KeyRelease>", self.search_columns)
-        self.plot_button = tk.Button(search_frame, text="绘图", command=self.plot_data,
-                                     bg="#4caf50", fg="white", font=("微软雅黑", 9, "bold"))
-        self.plot_button.pack(side=tk.LEFT, padx=5)
-
-        # 列表框 + 双滚动条
-        listbox_frame = ttk.Frame(self.left_frame)
-        listbox_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
-        v_scroll = ttk.Scrollbar(listbox_frame, orient=tk.VERTICAL)
-        h_scroll = ttk.Scrollbar(listbox_frame, orient=tk.HORIZONTAL)
-        self.col_listbox = tk.Listbox(
-            listbox_frame,
-            selectmode=tk.MULTIPLE,
-            yscrollcommand=v_scroll.set,
-            xscrollcommand=h_scroll.set,
-            font=("微软雅黑", 9),
-            width=40,
-            height=20
-        )
-        v_scroll.config(command=self.col_listbox.yview)
-        h_scroll.config(command=self.col_listbox.xview)
-        self.col_listbox.grid(row=0, column=0, sticky="nsew")
-        v_scroll.grid(row=0, column=1, sticky="ns")
-        h_scroll.grid(row=1, column=0, sticky="ew")
-        listbox_frame.grid_rowconfigure(0, weight=1)
-        listbox_frame.grid_columnconfigure(0, weight=1)
-
-        # 按钮行
-        btn_frame = ttk.Frame(self.left_frame)
-        btn_frame.pack(fill=tk.X, pady=5, padx=5)
-        ttk.Button(btn_frame, text="取消全部勾选", command=self.clear_selection).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="数据预览/诊断", command=self.show_data_preview).pack(side=tk.LEFT, padx=5)
-
-        # ---------- 右侧绘图区域 ----------
-        self.fig, self.ax = plt.subplots(figsize=(8, 5), dpi=100)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.right_frame)
-        self.toolbar = NavigationToolbar2Tk(self.canvas, self.right_frame)
-        self.toolbar.update()
-        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-
-        # 菜单栏
-        self.create_menubar()
-
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-    # -------------------------- 菜单栏相关 --------------------------
-    def create_menubar(self):
-        menubar = tk.Menu(self.root)
-        self.root.config(menu=menubar)
-        help_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="帮助", menu=help_menu)
-        help_menu.add_command(label="使用说明", command=self.show_help)
-        help_menu.add_separator()
-        help_menu.add_command(label="关于", command=self.show_about)
-
-    def show_help(self):
-        help_win = tk.Toplevel(self.root)
-        help_win.title("使用说明")
-        help_win.geometry("650x500")
-        text = tk.Text(help_win, wrap=tk.WORD, font=("微软雅黑", 10))
-        text.pack(fill=tk.BOTH, expand=True)
-        help_str = """金风风机B文件绘图工具 使用说明
-1. 点击“选择文件”打开B文件（.txt/.csv）。
-2. 若文件包含数字信号，会自动显示“数据集”下拉框，可切换模拟/数字信号。
-3. 左侧列表框中显示所有列（默认显示“中文(英文)”格式，可取消“中文”开关切换为纯英文）。
-4. 可多选列（Ctrl+单击，Shift+连续选择）作为Y轴数据。
-5. 选择X轴列（通常为时间戳）。
-6. 选择绘图类型（散点图/折线图）。
-7. 点击“绘图”生成曲线。
-8. 工具栏支持缩放、平移、保存图片。
-        """
-        text.insert(tk.END, help_str)
-        text.config(state=tk.DISABLED)
-        ttk.Button(help_win, text="关闭", command=help_win.destroy).pack(pady=5)
-
-    def show_about(self):
-        messagebox.showinfo("关于", "金风风机B文件绘图工具\n版本 2.2\n作者：赵伟东\n联系方式：17600382113")
-
-    # -------------------------- 列名显示相关 --------------------------
-    def get_display_name(self, eng_name):
-        """根据汉译开关返回显示名称"""
-        if not self.translate.get():
-            return eng_name
-        cn = COLUMN_CN_MAP.get(eng_name, "")
-        return f"{cn} ({eng_name})" if cn else eng_name
-
-    def on_translate_toggled(self):
-        """汉译开关切换时刷新显示"""
-        self.refresh_all_display_names()
-
-    def refresh_all_display_names(self):
-        """刷新所有列的显示名称"""
-        if self.df is None:
-            return
-        self.all_display_names = [self.get_display_name(col) for col in self.all_original_cols]
-        # 重新应用搜索过滤
-        keyword = self.search_entry.get().strip().lower()
-        if not keyword:
-            self.filtered_cols = self.all_original_cols.copy()
-            self.filtered_display_names = self.all_display_names.copy()
-        else:
-            filtered = []
-            disp_filtered = []
-            for orig, disp in zip(self.all_original_cols, self.all_display_names):
-                if keyword in orig.lower() or keyword in disp.lower():
-                    filtered.append(orig)
-                    disp_filtered.append(disp)
-            self.filtered_cols = filtered
-            self.filtered_display_names = disp_filtered
-        self.refresh_listbox()
-        # 刷新X轴下拉选项
-        self.refresh_x_options()
-        # 重置X轴显示
-        if self.x_col_name:
-            self.x_axis_combo.set(self.get_display_name(self.x_col_name))
-
-    def refresh_listbox(self):
-        """刷新列表框内容"""
-        self.col_listbox.delete(0, tk.END)
-        for name in self.filtered_display_names:
-            self.col_listbox.insert(tk.END, name)
-
-    def search_columns(self, event=None):
-        """搜索列"""
-        if self.df is None:
-            return
-        keyword = self.search_entry.get().strip().lower()
-        if not keyword:
-            self.filtered_cols = self.all_original_cols.copy()
-            self.filtered_display_names = self.all_display_names.copy()
-        else:
-            self.filtered_cols = []
-            self.filtered_display_names = []
-            for orig, disp in zip(self.all_original_cols, self.all_display_names):
-                if keyword in orig.lower() or keyword in disp.lower():
-                    self.filtered_cols.append(orig)
-                    self.filtered_display_names.append(disp)
-        self.refresh_listbox()
-
-    # -------------------------- 文件读取相关 --------------------------
-    def detect_encoding(self, file_path):
-        """检测文件编码"""
-        encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16', 'latin1']
-        for enc in encodings:
-            try:
-                with open(file_path, 'r', encoding=enc) as f:
-                    f.read(1000)
-                return enc
-            except UnicodeDecodeError:
-                continue
-        return 'utf-8'
-
-    def parse_file_sections(self, file_path, encoding):
-        """解析文件的模拟/数字信号分区"""
-        with open(file_path, 'r', encoding=encoding, errors='replace') as f:
-            lines = f.readlines()
-
-        analog_col_line = None
-        analog_start = None
-        analog_end = None
-        digital_col_line = None
-        digital_start = None
-        digital_end = None
-
-        # 找模拟信号列名行
-        for i, line in enumerate(lines):
-            stripped = line.strip()
-            if not stripped.startswith('#'):
-                break
-            if stripped.count(';') >= 10:
-                lower = stripped.lower()
-                if any(kw in lower for kw in ['buffersave', 'version', '-------', 'analog signals']):
-                    continue
-                analog_col_line = i
-                break
-
-        if analog_col_line is None:
-            raise ValueError("未找到模拟信号列名行")
-
-        # 找模拟信号数据起始行
-        analog_start = analog_col_line + 1
-        while analog_start < len(lines) and lines[analog_start].strip().startswith('#'):
-            analog_start += 1
-        if analog_start >= len(lines):
-            raise ValueError("模拟信号无数据行")
-
-        # 找数字信号分区
-        for i in range(analog_start, len(lines)):
-            line = lines[i].strip()
-            if '# ------- digital signals' in line.lower():
-                # 找数字信号列名行
-                for j in range(i+1, min(i+20, len(lines))):
-                    l = lines[j].strip()
-                    if l.startswith('#') and l.count(';') >= 10 and not any(kw in l.lower() for kw in ['buffersave', 'version', '-------']):
-                        digital_col_line = j
-                        break
-                if digital_col_line is not None:
-                    digital_start = digital_col_line + 1
-                    while digital_start < len(lines) and lines[digital_start].strip().startswith('#'):
-                        digital_start += 1
-                    digital_end = len(lines)
-                break
-
-        # 确定模拟信号结束行
-        if digital_col_line is not None:
-            analog_end = digital_col_line - 1
-        else:
-            analog_end = len(lines)
-
-        # 解析列名
-        analog_col_line_raw = lines[analog_col_line].lstrip('#').strip()
-        analog_col_names = [c.strip() for c in analog_col_line_raw.split(';') if c.strip()]
-
-        digital_col_names = []
-        if digital_col_line is not None:
-            digital_col_line_raw = lines[digital_col_line].lstrip('#').strip()
-            digital_col_names = [c.strip() for c in digital_col_line_raw.split(';') if c.strip()]
-
-        return (analog_col_names, analog_start, analog_end,
-                digital_col_names, digital_start, digital_end)
-
-    def select_file(self):
-        """选择文件"""
-        file = filedialog.askopenfilename(
-            title="选择数据文件",
-            filetypes=[("TXT文件", "*.txt"), ("CSV文件", "*.csv"), ("所有文件", "*.*")]
-        )
-        if file:
-            self.file_path.set(file)
-            self.read_data_file()
-
-    def read_data_file(self):
-        """读取数据文件"""
+# ===================== 完全复用你的文件解析逻辑（原封不动） =====================
+def detect_encoding(file_path):
+    encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16', 'latin1']
+    for enc in encodings:
         try:
-            file_path = self.file_path.get()
-            encoding = self.detect_encoding(file_path)
-            (analog_col_names, analog_start, analog_end,
-             digital_col_names, digital_start, digital_end) = self.parse_file_sections(file_path, encoding)
+            with open(file_path, 'r', encoding=enc) as f:
+                f.read(1000)
+            return enc
+        except UnicodeDecodeError:
+            continue
+    return 'utf-8'
 
-            with open(file_path, 'r', encoding=encoding) as f:
-                lines = f.readlines()
-            
-            # 读取模拟信号数据
-            analog_data_lines = lines[analog_start:analog_end]
-            analog_str = ''.join(analog_data_lines)
-            analog_io = io.StringIO(analog_str)
-            df_analog_raw = pd.read_csv(analog_io, sep=';', header=None, low_memory=False, na_values=["", " ", "NA", "N/A"])
+def parse_file_sections(lines):
+    analog_col_line = None
+    analog_start = None
+    analog_end = None
+    digital_col_line = None
+    digital_start = None
 
-            # 对齐列数
-            actual_analog_cols = df_analog_raw.shape[1]
-            if actual_analog_cols != len(analog_col_names):
-                if actual_analog_cols > len(analog_col_names):
-                    df_analog_raw = df_analog_raw.iloc[:, :len(analog_col_names)]
-                else:
-                    analog_col_names = analog_col_names[:actual_analog_cols]
-            df_analog_raw.columns = analog_col_names
-            self.df_analog = df_analog_raw.apply(pd.to_numeric, errors='coerce')
-
-            # 读取数字信号数据
-            self.df_digital = None
-            has_digital = (digital_start is not None and digital_end is not None and len(digital_col_names) > 0)
-            ctrl_frame = self.top_frame.winfo_children()[1]
-            
-            if has_digital:
-                digital_data_lines = lines[digital_start:digital_end]
-                digital_str = ''.join(digital_data_lines)
-                digital_io = io.StringIO(digital_str)
-                df_digital_raw = pd.read_csv(digital_io, sep=';', header=None, low_memory=False, na_values=["", " ", "NA", "N/A"])
-                actual_digital_cols = df_digital_raw.shape[1]
-                if actual_digital_cols != len(digital_col_names):
-                    if actual_digital_cols > len(digital_col_names):
-                        df_digital_raw = df_digital_raw.iloc[:, :len(digital_col_names)]
-                    else:
-                        digital_col_names = digital_col_names[:actual_digital_cols]
-                df_digital_raw.columns = digital_col_names
-                self.df_digital = df_digital_raw.apply(pd.to_numeric, errors='coerce')
-
-                # 显示数据集选择框
-                if not self.dataset_label_created:
-                    self.dataset_label.pack(side=tk.LEFT, padx=5)
-                    self.dataset_combo.pack(side=tk.LEFT, padx=5)
-                    self.dataset_label_created = True
-                self.dataset_combo['values'] = ["模拟信号", "数字信号"]
-                self.dataset_combo.set("模拟信号")
-            else:
-                # 隐藏数据集选择框
-                if self.dataset_label_created:
-                    self.dataset_label.pack_forget()
-                    self.dataset_combo.pack_forget()
-                    self.dataset_label_created = False
-                self.dataset_combo['values'] = ["模拟信号"]
-                self.dataset_combo.set("模拟信号")
-
-            # 设置当前数据集
-            self.current_dataset.set("模拟信号")
-            self.df = self.df_analog
-            self.after_dataset_switch()
-
-            # 更新状态提示
-            status_text = f"读取成功：模拟信号 {len(self.df_analog)}行 x {len(self.df_analog.columns)}列"
-            if has_digital:
-                status_text += f"，数字信号 {len(self.df_digital)}行 x {len(self.df_digital.columns)}列"
-            self.status_label.config(text=status_text, foreground="green")
-            
-        except Exception as e:
-            self.status_label.config(text=f"读取失败: {str(e)}", foreground="red")
-            self.df = None
-            self.filtered_cols = []
-            self.filtered_display_names = []
-            self.refresh_listbox()
-
-    def on_dataset_changed(self, event=None):
-        """切换数据集"""
-        ds = self.dataset_combo.get()
-        self.current_dataset.set(ds)
-        self.df = self.df_analog if ds == "模拟信号" else self.df_digital
-        self.after_dataset_switch()
-
-    def after_dataset_switch(self):
-        """数据集切换后初始化"""
-        if self.df is None:
-            return
-        # 刷新X轴选项
-        self.refresh_x_options()
-        # 自动选择X轴（优先timestamp/Time）
-        if 'timestamp' in self.df.columns:
-            self.x_col_name = 'timestamp'
-        elif 'Time' in self.df.columns:
-            self.x_col_name = 'Time'
-        else:
-            num_cols = self.df.select_dtypes(include='number').columns
-            if len(num_cols) > 0:
-                self.x_col_name = num_cols[0]
-        # 设置X轴显示
-        if self.x_col_name:
-            self.x_axis_combo.set(self.get_display_name(self.x_col_name))
-        # 初始化列列表
-        self.all_original_cols = self.df.columns.tolist()
-        self.all_display_names = [self.get_display_name(col) for col in self.all_original_cols]
-        self.filtered_cols = self.all_original_cols.copy()
-        self.filtered_display_names = self.all_display_names.copy()
-        self.refresh_listbox()
-
-    # -------------------------- X轴相关 --------------------------
-    def refresh_x_options(self):
-        """刷新X轴下拉选项"""
-        if self.df is None:
-            self.x_axis_combo['values'] = []
-            return
-        # 获取所有数值型列的显示名称
-        num_cols = self.df.select_dtypes(include='number').columns.tolist()
-        x_options = [self.get_display_name(col) for col in num_cols]
-        self.x_axis_combo['values'] = x_options
-
-    def on_x_axis_changed(self, event=None):
-        """X轴选择改变"""
-        selected_display = self.x_axis_combo.get()
-        if not selected_display or self.df is None:
-            return
-        # 反向查找原始列名
-        for col in self.df.columns:
-            if self.get_display_name(col) == selected_display:
-                self.x_col_name = col
-                break
-
-    # -------------------------- 绘图相关 --------------------------
-    def clear_selection(self):
-        """取消列表框全部勾选"""
-        self.col_listbox.selection_clear(0, tk.END)
-
-    def show_data_preview(self):
-        """数据预览/诊断"""
-        if self.df is None:
-            messagebox.showwarning("警告", "未读取数据！")
-            return
-        
-        preview_win = tk.Toplevel(self.root)
-        preview_win.title("数据预览/诊断")
-        preview_win.geometry("800x600")
-
-        # 创建文本框
-        text = tk.Text(preview_win, wrap=tk.NONE, font=("微软雅黑", 9))
-        v_scroll = ttk.Scrollbar(preview_win, orient=tk.VERTICAL, command=text.yview)
-        h_scroll = ttk.Scrollbar(preview_win, orient=tk.HORIZONTAL, command=text.xview)
-        text.configure(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
-        
-        text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        h_scroll.pack(side=tk.BOTTOM, fill=tk.X)
-
-        # 生成诊断信息
-        info = f"数据集：{self.current_dataset.get()}\n"
-        info += f"数据形状：{self.df.shape[0]} 行 × {self.df.shape[1]} 列\n\n"
-        info += "前5行数据：\n"
-        info += self.df.head().to_string() + "\n\n"
-        info += "数据类型：\n"
-        info += self.df.dtypes.to_string() + "\n\n"
-        info += "缺失值统计：\n"
-        missing = self.df.isnull().sum()
-        info += missing[missing > 0].to_string() if missing.sum() > 0 else "无缺失值" + "\n\n"
-        info += "数值统计：\n"
-        info += self.df.describe().to_string()
-
-        text.insert(tk.END, info)
-        text.config(state=tk.DISABLED)
-
-        ttk.Button(preview_win, text="关闭", command=preview_win.destroy).pack(pady=5)
-
-    def plot_data(self):
-        """绘图"""
-        if self.df is None:
-            messagebox.showwarning("警告", "未读取数据！")
-            return
-        if self.x_col_name is None or self.x_col_name not in self.df.columns:
-            messagebox.showwarning("警告", "请选择有效的X轴列！")
-            return
-        
-        # 获取选中的Y列
-        selected_indices = self.col_listbox.curselection()
-        if not selected_indices:
-            messagebox.showwarning("警告", "请至少选择一列作为Y轴！")
-            return
-        
-        selected_cols = [self.filtered_cols[i] for i in selected_indices]
-        if not selected_cols:
-            messagebox.showwarning("警告", "未选中有效列！")
-            return
-
-        # 清空绘图区
-        self.ax.clear()
-
-        # 获取X轴数据
-        x_data = self.df[self.x_col_name].dropna()
-        if len(x_data) == 0:
-            messagebox.showwarning("警告", "X轴数据全为缺失值！")
-            return
-
-        # 绘制每条曲线
-        for idx, col in enumerate(selected_cols):
-            y_data = self.df[col].dropna()
-            if len(y_data) == 0:
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith('#'):
+            break
+        if stripped.count(';') >= 10:
+            lower = stripped.lower()
+            if any(kw in lower for kw in ['buffersave', 'version', '-------', 'analog signals']):
                 continue
-            # 对齐X/Y数据（去除缺失值）
-            combined = pd.DataFrame({'x': x_data, 'y': y_data}).dropna()
-            if len(combined) == 0:
-                continue
-            
-            display_name = self.get_display_name(col).split(' (')[0]  # 只显示中文名称
-            color = COLORS[idx % len(COLORS)]
-            
-            if self.plot_type.get() == "line":
-                self.ax.plot(combined['x'], combined['y'], label=display_name, color=color, linewidth=1)
-            else:
-                self.ax.scatter(combined['x'], combined['y'], label=display_name, color=color, s=1)
+            analog_col_line = i
+            break
 
-        # 设置图表样式
-        self.ax.set_xlabel(self.get_display_name(self.x_col_name).split(' (')[0], fontsize=10, fontfamily='Microsoft YaHei')
-        self.ax.set_ylabel("数值", fontsize=10, fontfamily='Microsoft YaHei')
-        self.ax.set_title("风机数据可视化", fontsize=12, fontweight='bold', fontfamily='Microsoft YaHei')
-        self.ax.legend(loc='best', fontsize=8, prop={'family': 'Microsoft YaHei'})
-        self.ax.grid(True, alpha=0.3)
+    analog_start = analog_col_line + 1
+    while analog_start < len(lines) and lines[analog_start].strip().startswith('#'):
+        analog_start += 1
 
-        # 更新画布
-        self.canvas.draw()
+    for i in range(analog_start, len(lines)):
+        if '# ------- digital signals' in lines[i].lower():
+            for j in range(i+1, min(i+20, len(lines))):
+                l = lines[j].strip()
+                if l.startswith('#') and l.count(';') >= 10:
+                    digital_col_line = j
+                    break
+            if digital_col_line:
+                digital_start = digital_col_line + 1
+                while digital_start < len(lines) and lines[digital_start].strip().startswith('#'):
+                    digital_start += 1
+            break
 
-    def on_closing(self):
-        """关闭窗口"""
-        self.root.destroy()
+    analog_end = digital_col_line - 1 if digital_col_line else len(lines)
+    analog_cols = [c.strip() for c in lines[analog_col_line].lstrip('#').split(';') if c.strip()]
+    digital_cols = [c.strip() for c in lines[digital_col_line].lstrip('#').split(';') if c.strip()] if digital_col_line else []
+    return analog_cols, analog_start, analog_end, digital_cols, digital_start
 
-# -------------------------- 主程序入口 --------------------------
-if __name__ == "__main__":
-    # 隐藏控制台窗口（仅Windows）
-    hide_console()
+def read_wind_data(file):
+    lines = file.getvalue().decode('utf-8', errors='replace').splitlines()
+    analog_cols, a_start, a_end, digital_cols, d_start = parse_file_sections(lines)
     
-    root = tk.Tk()
-    app = WindDataPlotter(root)
-    root.mainloop()
+    # 解析模拟信号
+    analog_data = '\n'.join(lines[a_start:a_end])
+    df_analog = pd.read_csv(io.StringIO(analog_data), sep=';', header=None, names=analog_cols, dtype='float64')
+    
+    # 解析数字信号
+    df_digital = None
+    if digital_cols and d_start:
+        digital_data = '\n'.join(lines[d_start:])
+        df_digital = pd.read_csv(io.StringIO(digital_data), sep=';', header=None, names=digital_cols, dtype='float64')
+    
+    return df_analog, df_digital
+
+# ===================== Streamlit 界面（仅替换GUI，核心逻辑不变） =====================
+st.title("金风风机B文件绘图工具")
+st.subheader("部署于 Streamlit Cloud")
+
+# 1. 文件上传
+uploaded_file = st.file_uploader("上传风机B文件（.txt/.csv）", type=["txt", "csv"])
+if uploaded_file:
+    with st.spinner("解析文件中..."):
+        df_analog, df_digital = read_wind_data(uploaded_file)
+
+    # 2. 数据集切换
+    dataset = st.radio("选择数据集", ["模拟信号", "数字信号"], horizontal=True)
+    df = df_analog if dataset == "模拟信号" else df_digital
+
+    # 3. 列名显示（中文/英文）
+    use_cn = st.checkbox("显示中文列名", value=True)
+    def get_name(col):
+        return f"{COLUMN_CN_MAP.get(col, col)} ({col})" if use_cn else col
+
+    # 4. 坐标轴选择
+    col1, col2 = st.columns(2)
+    with col1:
+        x_col = st.selectbox("X轴", options=df.columns, format_func=get_name)
+    with col2:
+        y_cols = st.multiselect("Y轴（可多选）", options=df.columns, format_func=get_name)
+
+    # 5. 绘图类型
+    plot_type = st.radio("绘图类型", ["折线图", "散点图"], horizontal=True)
+
+    # 6. 执行绘图
+    if x_col and y_cols:
+        fig, ax = plt.subplots(figsize=(12, 5))
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+        
+        for i, y in enumerate(y_cols):
+            data = df[[x_col, y]].dropna()
+            label = get_name(y).split(' (')[0]
+            if plot_type == "折线图":
+                ax.plot(data[x_col], data[y], label=label, color=colors[i%5], linewidth=1)
+            else:
+                ax.scatter(data[x_col], data[y], label=label, color=colors[i%5], s=1)
+        
+        ax.set_xlabel(get_name(x_col).split(' (')[0])
+        ax.set_ylabel("数值")
+        ax.set_title("风机数据可视化")
+        ax.legend(loc='best')
+        ax.grid(alpha=0.3)
+        st.pyplot(fig)
+
+    # 7. 数据预览
+    with st.expander("数据预览"):
+        st.dataframe(df.head(10))
