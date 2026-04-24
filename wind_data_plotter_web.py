@@ -578,7 +578,7 @@ def main():
                             if st.button("重置范围"):
                                 x_min_val = x_min_global
                                 x_max_val = x_max_global
-                                st.experimental_rerun()
+                                st.rerun()
                         if x_min_val >= x_max_val:
                             st.error("最小值必须小于最大值")
                             enable_zoom = False
