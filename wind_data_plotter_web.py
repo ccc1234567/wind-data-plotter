@@ -628,7 +628,7 @@ def main():
                     plt.tight_layout()
 
                     # 图表居中显示
-                        st.pyplot(fig)
+                    st.pyplot(fig)
 
         except Exception as e:
             st.error(f"❌ 处理文件失败：{str(e)}")
