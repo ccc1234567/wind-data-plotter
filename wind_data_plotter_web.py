@@ -8,9 +8,9 @@ import io
 import os
 import glob
 import tempfile
+import numpy as np
 
 # ================== 中英文列名映射表（请将您的完整映射粘贴至此）==================
-# 注意：此处仅作示例，实际使用时请替换为您之前完整的 COLUMN_CN_MAP 字典
 COLUMN_CN_MAP = {
     # 模拟信号（Analog Signals）
     "timestamp": "时间戳",
@@ -364,21 +364,16 @@ COLUMN_CN_MAP = {
 }
 
 def get_display_name(eng_name, translate=True):
-    """获取列的显示名称（中文/英文）"""
     if not translate:
         return eng_name
     cn = COLUMN_CN_MAP.get(eng_name, "")
     return f"{cn} ({eng_name})" if cn else eng_name
 
-# -------------------------- 严格使用指定字体（NotoSansHK）--------------------------
+# -------------------------- 严格使用指定字体（此处改为微软雅黑）--------------------------
 def load_custom_font():
-    """
-    只加载 fonts 文件夹下的 NotoSansHK 字体。
-    若找不到，则发出警告，不进行任何回退。
-    """
+    """加载 fonts 文件夹下的微软雅黑字体（msyh.ttf/ttc）"""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     fonts_dir = os.path.join(base_dir, "fonts")
-    
     font_path = None
     if os.path.exists(fonts_dir):
         for ext in ['*.ttf', '*.otf', '*.ttc']:
@@ -389,7 +384,6 @@ def load_custom_font():
                     break
             if font_path:
                 break
-    
     if font_path and os.path.exists(font_path):
         try:
             fm.fontManager.addfont(font_path)
@@ -397,18 +391,15 @@ def load_custom_font():
             font_name = prop.get_name()
             plt.rcParams['font.family'] = font_name
             plt.rcParams['axes.unicode_minus'] = False
-            st.success(f"✅ 已加载指定字体：{os.path.basename(font_path)}（{font_name}）")
+            st.success(f"✅ 已加载字体：{os.path.basename(font_path)}（{font_name}）")
         except Exception as e:
             st.error(f"❌ 加载字体失败：{e}")
-            st.warning("⚠️ 将使用默认字体，中文可能无法正确显示。")
     else:
-        st.warning("⚠️ 未找到 NotoSansHK 字体文件！")
-        st.info("请确保在程序根目录下创建 `fonts` 文件夹，并放入 NotoSansHK 字体文件（例如 NotoSansHK-Regular.ttf）。")
-        st.warning("当前将使用 Matplotlib 默认字体，图表中的中文可能显示为方框。")
+        st.warning("⚠️ 未找到微软雅黑字体文件（msyh.ttf/ttc），请放入 fonts 文件夹")
+        st.warning("将使用默认字体，中文可能显示为方框")
 
-# -------------------------- 核心工具函数 --------------------------
+# -------------------------- 核心工具函数（保持不变）--------------------------
 def detect_encoding(file_path):
-    """检测文件编码"""
     encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16', 'latin1']
     for enc in encodings:
         try:
@@ -420,7 +411,6 @@ def detect_encoding(file_path):
     return 'utf-8'
 
 def parse_file_sections(file_path, encoding):
-    """解析B文件的模拟/数字信号分区"""
     with open(file_path, 'r', encoding=encoding, errors='replace') as f:
         lines = f.readlines()
 
@@ -431,7 +421,6 @@ def parse_file_sections(file_path, encoding):
     digital_start = None
     digital_end = None
 
-    # 定位模拟信号列名行
     for i, line in enumerate(lines):
         stripped = line.strip()
         if not stripped.startswith('#'):
@@ -446,18 +435,15 @@ def parse_file_sections(file_path, encoding):
     if analog_col_line is None:
         raise ValueError("未找到模拟信号列名行")
 
-    # 定位模拟信号数据起始行
     analog_start = analog_col_line + 1
     while analog_start < len(lines) and lines[analog_start].strip().startswith('#'):
         analog_start += 1
     if analog_start >= len(lines):
         raise ValueError("模拟信号无数据行")
 
-    # 定位数字信号分区
     for i in range(analog_start, len(lines)):
         line = lines[i].strip()
         if '# ------- digital signals' in line.lower():
-            # 找数字信号列名行
             for j in range(i+1, min(i+20, len(lines))):
                 l = lines[j].strip()
                 if l.startswith('#') and l.count(';') >= 10 and not any(kw in l.lower() for kw in ['buffersave', 'version', '-------']):
@@ -470,13 +456,11 @@ def parse_file_sections(file_path, encoding):
                 digital_end = len(lines)
             break
 
-    # 确定模拟信号结束行
     if digital_col_line is not None:
         analog_end = digital_col_line - 1
     else:
         analog_end = len(lines)
 
-    # 提取列名
     analog_col_line_raw = lines[analog_col_line].lstrip('#').strip()
     analog_col_names = [c.strip() for c in analog_col_line_raw.split(';') if c.strip()]
 
@@ -488,56 +472,39 @@ def parse_file_sections(file_path, encoding):
     return (analog_col_names, analog_start, analog_end,
             digital_col_names, digital_start, digital_end)
 
-# -------------------------- Streamlit主逻辑 --------------------------
+# -------------------------- Streamlit 主应用 --------------------------
 def main():
-    # 加载字体（必须在任何绘图之前）
     load_custom_font()
 
-    st.set_page_config(
-        page_title="金风风机B文件绘图工具",
-        page_icon="🌬️",
-        layout="wide"
-    )
-
+    st.set_page_config(page_title="金风风机B文件绘图工具", page_icon="🌬️", layout="wide")
     st.title("🌬️ 金风风机B文件绘图工具")
 
-    # 侧边栏：配置区
     with st.sidebar:
         st.header("📁 文件上传")
-        uploaded_file = st.file_uploader(
-            "选择B文件（.txt/.csv）",
-            type=["txt", "csv"],
-            help="支持金风风机B文件格式的TXT/CSV文件"
-        )
-
+        uploaded_file = st.file_uploader("选择B文件（.txt/.csv）", type=["txt", "csv"],
+                                         help="支持金风风机B文件格式的TXT/CSV文件")
         st.divider()
         st.header("⚙️ 绘图配置")
         translate = st.checkbox("显示中文列名", value=True, help="勾选后列名显示为「中文(英文)」格式")
         plot_type = st.radio("绘图类型", ["折线图", "散点图"], horizontal=True)
         show_preview = st.checkbox("显示数据预览", value=False)
 
-    # 主区域：数据处理 + 绘图
     if uploaded_file is not None:
         try:
-            # 保存上传文件到临时路径
             with tempfile.NamedTemporaryFile(delete=False, suffix='.txt') as tmp_file:
                 tmp_file.write(uploaded_file.getvalue())
                 tmp_file_path = tmp_file.name
 
-            # 检测编码 + 解析文件
             encoding = detect_encoding(tmp_file_path)
             (analog_col_names, analog_start, analog_end,
              digital_col_names, digital_start, digital_end) = parse_file_sections(tmp_file_path, encoding)
 
-            # 读取模拟信号数据
             with open(tmp_file_path, 'r', encoding=encoding) as f:
                 lines = f.readlines()
             analog_data_lines = lines[analog_start:analog_end]
             analog_str = ''.join(analog_data_lines)
             analog_io = io.StringIO(analog_str)
             df_analog_raw = pd.read_csv(analog_io, sep=';', header=None, low_memory=False, na_values=["", " ", "NA", "N/A"])
-
-            # 对齐列数
             actual_analog_cols = df_analog_raw.shape[1]
             if actual_analog_cols != len(analog_col_names):
                 if actual_analog_cols > len(analog_col_names):
@@ -547,7 +514,6 @@ def main():
             df_analog_raw.columns = analog_col_names
             df_analog = df_analog_raw.apply(pd.to_numeric, errors='coerce')
 
-            # 读取数字信号数据（如果有）
             df_digital = None
             has_digital = (digital_start is not None and digital_end is not None and len(digital_col_names) > 0)
             if has_digital:
@@ -564,13 +530,11 @@ def main():
                 df_digital_raw.columns = digital_col_names
                 df_digital = df_digital_raw.apply(pd.to_numeric, errors='coerce')
 
-            # 数据集选择
             dataset_options = ["模拟信号"]
             if has_digital:
                 dataset_options.append("数字信号")
             selected_dataset = st.selectbox("📊 选择数据集", dataset_options)
 
-            # 加载对应数据集
             if selected_dataset == "模拟信号":
                 df = df_analog
                 col_names = analog_col_names
@@ -578,39 +542,72 @@ def main():
                 df = df_digital
                 col_names = digital_col_names
 
-            # 显示数据基本信息
             st.success(f"✅ 读取成功：{selected_dataset} - {len(df)}行 x {len(df.columns)}列")
 
-            # 数据预览
             if show_preview:
                 with st.expander("📈 数据预览（前10行）", expanded=True):
                     st.dataframe(df.head(10), use_container_width=True)
 
-            # 生成显示名称（支持中文/英文切换）
             display_names = [get_display_name(col, translate) for col in col_names]
             col_name_map = {disp: orig for disp, orig in zip(display_names, col_names)}
 
-            # X轴选择
             st.subheader("🎯 轴配置")
             col1, col2 = st.columns(2)
             with col1:
-                # 默认选中 timestamp 列（如果存在）
                 default_x_display = get_display_name("timestamp", translate) if "timestamp" in col_names else display_names[0]
                 selected_x_display = st.selectbox("X轴列（通常选时间戳）", display_names, index=display_names.index(default_x_display))
                 x_col = col_name_map[selected_x_display]
 
-            # Y轴多选
             with col2:
                 default_y_display = [get_display_name("wind_speed", translate)] if "wind_speed" in col_names else []
                 selected_y_display = st.multiselect("Y轴列（可多选）", display_names, default=default_y_display)
                 y_cols = [col_name_map[disp] for disp in selected_y_display]
 
-            # 绘图逻辑
+            # -------------------------- 新增：图表缩放控件 --------------------------
+            st.subheader("🔍 图表缩放（X轴范围）")
+            enable_zoom = st.checkbox("启用X轴范围限制（用于放大图表）", value=False)
+            x_min_val = None
+            x_max_val = None
+            if enable_zoom and x_col in df.columns:
+                # 获取X列的有效数值范围
+                x_data = df[x_col].dropna()
+                if len(x_data) > 0:
+                    x_min_global = float(x_data.min())
+                    x_max_global = float(x_data.max())
+                    # 使用滑块选择范围
+                    col_range = st.columns(2)
+                    with col_range[0]:
+                        x_min_val = st.number_input(f"X轴最小值（{selected_x_display}）", value=x_min_global, format="%.6f")
+                    with col_range[1]:
+                        x_max_val = st.number_input(f"X轴最大值（{selected_x_display}）", value=x_max_global, format="%.6f")
+                    if x_min_val >= x_max_val:
+                        st.error("最小值必须小于最大值，已自动交换")
+                        x_min_val, x_max_val = x_max_val, x_min_val
+                    # 可选：添加“重置范围”按钮
+                    if st.button("重置X轴范围"):
+                        x_min_val = x_min_global
+                        x_max_val = x_max_global
+                        st.experimental_rerun()
+                else:
+                    st.warning("X轴列无有效数据，无法使用缩放")
+                    enable_zoom = False
+
+            # 绘图按钮
             if st.button("🚀 生成图表", type="primary") and y_cols:
+                # 基础数据
                 plot_df = df[[x_col] + y_cols].dropna()
                 if len(plot_df) == 0:
                     st.error("❌ 所选列无有效数据（全为缺失值），无法绘图！")
                 else:
+                    # 应用X轴范围限制（如果启用）
+                    if enable_zoom and x_min_val is not None and x_max_val is not None:
+                        mask = (plot_df[x_col] >= x_min_val) & (plot_df[x_col] <= x_max_val)
+                        plot_df = plot_df[mask]
+                        if len(plot_df) == 0:
+                            st.warning("当前X轴范围内无数据，请扩大范围")
+                            # 不绘图，返回
+                            st.stop()
+
                     fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
                     colors = list(mcolors.TABLEAU_COLORS.values())
 
@@ -625,7 +622,6 @@ def main():
                                       label=y_display, color=colors[idx % len(colors)],
                                       s=2, alpha=0.6)
 
-                    # 图表样式
                     ax.set_xlabel(selected_x_display, fontsize=10)
                     ax.set_ylabel("数值", fontsize=10)
                     ax.set_title(f"{selected_dataset} - {plot_type}", fontsize=12, fontweight='bold')
@@ -633,36 +629,26 @@ def main():
                     ax.grid(True, alpha=0.3)
                     plt.tight_layout()
 
-                    # 显示图表
                     st.pyplot(fig)
 
         except Exception as e:
             st.error(f"❌ 处理文件失败：{str(e)}")
             st.exception(e)
     else:
-        # 初始提示
         st.info("👆 请在左侧侧边栏上传金风风机B文件（.txt/.csv格式）")
-
-        # 使用说明
         with st.expander("📖 使用说明", expanded=True):
             st.markdown("""
             ### 金风风机B文件绘图工具 使用说明
-            1. 点击左侧「选择B文件」上传.txt/.csv格式的金风风机B文件；
-            2. 可选「显示中文列名」开关（默认开启，列名显示为「中文(英文)」）；
-            3. 选择「绘图类型」（折线图/散点图）；
-            4. 选择数据集（模拟信号/数字信号，仅文件包含数字信号时显示）；
-            5. 选择X轴列（通常选时间戳）、Y轴列（可多选）；
-            6. 点击「生成图表」查看可视化结果；
-            7. 可选「显示数据预览」查看前10行原始数据。
+            1. 上传文件后，选择数据集、X/Y轴列；
+            2. **新增功能**：勾选「启用X轴范围限制」，可手动输入X轴的最小/最大值，实现图表水平缩放（放大查看局部细节）；
+            3. 点击「生成图表」即可看到缩放后的图形；
+            4. 其余功能（中英文列名、预览等）保持不变。
             """)
-
-        # 关于信息
         with st.expander("ℹ️ 关于", expanded=False):
             st.markdown("""
-            金风风机B文件绘图工具  
-            版本：2.3（严格使用自定义字体）  
-            适配：金风风机B文件格式解析、多列可视化  
-            字体：只使用 fonts/NotoSansHK 字体文件，无自动回退  
+            金风风机B文件绘图工具（含缩放控件）  
+            版本：2.4  
+            字体：微软雅黑（需放入 fonts/msyh.ttf）  
             """)
 
 if __name__ == "__main__":
