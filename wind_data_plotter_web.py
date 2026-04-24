@@ -571,17 +571,35 @@ def main():
                 y_cols = [col_name_map[disp] for disp in selected_y_display]
 
             # 绘图逻辑
+            # 绘图逻辑
             if st.button("🚀 生成图表", type="primary") and y_cols:
                 # 清理缺失值
                 plot_df = df[[x_col] + y_cols].dropna()
                 if len(plot_df) == 0:
                     st.error("❌ 所选列无有效数据（全为缺失值），无法绘图！")
                 else:
+                    # ============ 修复中文乱码 - 全局字体配置 ============
                     import matplotlib.font_manager as fm
-                    plt.rcParams['axes.unicode_minus'] = False
-                    font_prop = fm.FontProperties(fname='/usr/share/fonts/truetype/wqy/wqy-microhei.ttc', size=12)
-            # ==============================================
+                    import platform
 
+                    # 解决负号显示问题
+                    plt.rcParams['axes.unicode_minus'] = False
+        
+                    # 根据系统自动选择中文字体
+                    system = platform.system()
+                    if system == "Windows":
+                        # Windows 系统字体
+                        font_name = "Microsoft YaHei"  # 微软雅黑
+                    elif system == "Darwin":
+                        # macOS 系统字体
+                        font_name = "PingFang SC"  # 苹方
+                    else:
+                        # Linux 系统字体
+                        font_name = "WenQuanYi Micro Hei"  # 文泉驿微米黑
+        
+                    # 全局设置字体
+                    plt.rcParams['font.family'] = font_name
+                    plt.rcParams['font.size'] = 10
 
                     # 创建图表
                     fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
@@ -598,17 +616,16 @@ def main():
                                       label=y_display, color=colors[idx % len(colors)],
                                       s=2, alpha=0.6)
 
-                    # 图表样式配置
-                    ax.set_xlabel(get_display_name(x_col, translate), fontsize=10)
-                    ax.set_ylabel("数值", fontsize=10)
-                    ax.set_title(f"{selected_dataset} - {plot_type}", fontsize=12, fontweight='bold')
-                    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+                    # 图表样式配置（显式指定字体，双重保障）
+                    ax.set_xlabel(get_display_name(x_col, translate), fontsize=10, fontfamily=font_name)
+                    ax.set_ylabel("数值", fontsize=10, fontfamily=font_name)
+                    ax.set_title(f"{selected_dataset} - {plot_type}", fontsize=12, fontweight='bold', fontfamily=font_name)
+                    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8, prop={'family': font_name})
                     ax.grid(True, alpha=0.3)
                     plt.tight_layout()
 
                     # 显示图表
                     st.pyplot(fig)
-
         except Exception as e:
             st.error(f"❌ 处理文件失败：{str(e)}")
             st.exception(e)
