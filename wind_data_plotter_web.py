@@ -628,8 +628,6 @@ def main():
                     plt.tight_layout()
 
                     # 图表居中显示
-                    center_col1, center_col2, center_col3 = st.columns([1, 6, 1])
-                    with center_col2:
                         st.pyplot(fig)
 
         except Exception as e:
@@ -640,9 +638,9 @@ def main():
         with st.expander("📖 使用说明", expanded=True):
             st.markdown("""
             ### 使用说明
-            1. 上传文件后，在「绘图设置」区域选择数据集、X轴、Y轴（三个控件在同一行）；
+            1. 上传文件后，在「绘图设置」区域选择数据集、X轴、Y轴；
             2. 可选「启用X轴范围限制」进行局部放大；
-            3. 点击生成图表，图形会自动居中显示，图例会显示在标题下方。
+            3. 点击生成图表即可。
             """)
 
 if __name__ == "__main__":
