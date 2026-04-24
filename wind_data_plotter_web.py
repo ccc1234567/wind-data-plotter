@@ -375,7 +375,7 @@ def load_custom_font():
     fonts_dir = os.path.join(base_dir, "fonts")
     font_path = None
     if os.path.exists(fonts_dir):
-        for ext in ['*.ttf', '*.otf', ''*.ttc']:
+        for ext in ['*.ttf', '*.otf', '*.ttc']:
             matches = glob.glob(os.path.join(fonts_dir, ext))
             for match in matches:
                 if 'msyh' in os.path.basename(match).lower():
