@@ -392,7 +392,6 @@ def load_custom_font():
             plt.rcParams['axes.unicode_minus'] = False
         except Exception:
             pass  # 静默失败，使用默认字体
-    # 如果未找到字体，不做任何设置（使用默认，不输出警告）
 
 # -------------------------- 核心工具函数（保持不变）--------------------------
 def detect_encoding(file_path):
@@ -470,11 +469,10 @@ def parse_file_sections(file_path, encoding):
 
 # -------------------------- Streamlit 主应用 --------------------------
 def main():
-    # 静默加载字体（无任何输出）
     load_custom_font()
 
-    st.set_page_config(page_title="B文件绘图工具", page_icon="🌬️", layout="wide")
-    st.title("🌬️ 欢迎使用B文件绘图工具")
+    st.set_page_config(page_title="金风风机B文件绘图工具", page_icon="🌬️", layout="wide")
+    st.title("🌬️ 金风风机B文件绘图工具")
 
     with st.sidebar:
         st.header("📁 文件上传")
@@ -526,40 +524,56 @@ def main():
                 df_digital_raw.columns = digital_col_names
                 df_digital = df_digital_raw.apply(pd.to_numeric, errors='coerce')
 
-            # ========== 紧凑布局：数据集 + 轴配置 + 缩放 ==========
+            # ========== 紧凑布局：一行显示数据集、X轴、Y轴 ==========
             with st.container():
                 st.markdown("### 📐 绘图设置")
-                # 第一行：数据集选择
+
+                # 准备数据集选项
                 dataset_options = ["模拟信号"]
                 if has_digital:
                     dataset_options.append("数字信号")
-                selected_dataset = st.selectbox("选择数据集", dataset_options, key="dataset")
-
+                
+                # 初始化 df 和 col_names（稍后根据选择更新）
+                # 先显示三个选择框，动态更新数据
+                # 由于需要根据数据集更新列名，这里先使用一个占位符，然后根据选择重新读取
+                # 简便方法：将数据集选择放在第一个列，当改变时重新运行逻辑
+                # 但为了流畅，我们使用 session_state 或者直接使用回调，这里使用简单方法：每次选择后重新解析列名
+                # 注意：因为 df 和 col_names 依赖于数据集，需要在选择后重新赋值。
+                # 我们将三个控件放在一行，数据集变化时，下面的列名选择框需要重新生成。
+                # Streamlit 的机制是重新运行脚本，所以直接写即可。
+                
+                # 使用三列布局（比例为 1:2:3，因为 Y 轴是多选需要更多空间）
+                col_dataset, col_x, col_y = st.columns([1, 2, 3])
+                
+                with col_dataset:
+                    selected_dataset = st.selectbox("选择数据集", dataset_options, key="dataset_select")
+                
+                # 根据所选数据集获取对应的 df 和列名
                 if selected_dataset == "模拟信号":
                     df = df_analog
                     col_names = analog_col_names
                 else:
                     df = df_digital
                     col_names = digital_col_names
+                
+                # 生成显示名称
+                display_names = [get_display_name(col, translate) for col in col_names]
+                col_name_map = {disp: orig for disp, orig in zip(display_names, col_names)}
+                
+                with col_x:
+                    default_x_display = get_display_name("timestamp", translate) if "timestamp" in col_names else display_names[0]
+                    selected_x_display = st.selectbox("X轴列", display_names, index=display_names.index(default_x_display), key="x_axis")
+                    x_col = col_name_map[selected_x_display]
+                
+                with col_y:
+                    default_y_display = [get_display_name("wind_speed", translate)] if "wind_speed" in col_names else []
+                    selected_y_display = st.multiselect("Y轴列（多选）", display_names, default=default_y_display, key="y_axis")
+                    y_cols = [col_name_map[disp] for disp in selected_y_display]
 
                 # 数据预览（可选）
                 if show_preview:
                     with st.expander("📈 数据预览（前10行）"):
                         st.dataframe(df.head(10), use_container_width=True)
-
-                # 轴配置（X/Y 放在同一行）
-                display_names = [get_display_name(col, translate) for col in col_names]
-                col_name_map = {disp: orig for disp, orig in zip(display_names, col_names)}
-
-                col_axis1, col_axis2 = st.columns(2)
-                with col_axis1:
-                    default_x_display = get_display_name("timestamp", translate) if "timestamp" in col_names else display_names[0]
-                    selected_x_display = st.selectbox("X轴列", display_names, index=display_names.index(default_x_display))
-                    x_col = col_name_map[selected_x_display]
-                with col_axis2:
-                    default_y_display = [get_display_name("wind_speed", translate)] if "wind_speed" in col_names else []
-                    selected_y_display = st.multiselect("Y轴列（多选）", display_names, default=default_y_display)
-                    y_cols = [col_name_map[disp] for disp in selected_y_display]
 
                 # 图表缩放（紧凑显示）
                 enable_zoom = st.checkbox("启用X轴范围限制（放大局部）", value=False)
@@ -570,7 +584,6 @@ def main():
                     if len(x_data) > 0:
                         x_min_global = float(x_data.min())
                         x_max_global = float(x_data.max())
-                        # 使用三列布局，将两个输入框和重置按钮放在一行
                         zoom_col1, zoom_col2, zoom_col3 = st.columns(3)
                         with zoom_col1:
                             x_min_val = st.number_input(f"{selected_x_display} 最小值", value=x_min_global, format="%.6f")
@@ -588,8 +601,8 @@ def main():
                         enable_zoom = False
                         st.warning("X轴列无有效数据，无法缩放")
 
-            # 生成图表按钮（放在紧凑块下方）
-            col_btn_left, col_btn_center, col_btn_right = st.columns([1,2,1])
+            # 生成图表按钮居中
+            col_btn_left, col_btn_center, col_btn_right = st.columns([1, 2, 1])
             with col_btn_center:
                 generate = st.button("🚀 生成图表", type="primary", use_container_width=True)
 
@@ -633,11 +646,11 @@ def main():
             st.error(f"❌ 处理文件失败：{str(e)}")
             st.exception(e)
     else:
-        st.info("👆 请在左侧侧边栏上传B文件（.txt/.csv格式）")
+        st.info("👆 请在左侧侧边栏上传金风风机B文件（.txt/.csv格式）")
         with st.expander("📖 使用说明", expanded=True):
             st.markdown("""
             ### 使用说明
-            1. 上传文件后，在「绘图设置」区域选择数据集、X/Y轴；
+            1. 上传文件后，在「绘图设置」区域选择数据集、X轴、Y轴（三个控件在同一行）；
             2. 可选「启用X轴范围限制」进行局部放大；
             3. 点击生成图表，图形会自动居中显示。
             """)
