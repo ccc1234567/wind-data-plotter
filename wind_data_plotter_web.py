@@ -1,14 +1,11 @@
+# 导入所需库
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-import io
+import sys
 import platform
-
-# 列名翻译
-# ================== 核心配置 ==================
-plt.rcParams["font.family"] = ["SimHei", "WenQuanYi Micro Hei", "DejaVu Sans"]
-plt.rcParams["axes.unicode_minus"] = False  # 解决负号显示问题
+import io
 
 # ================== 中英文列名映射表（完整保留）==================
 COLUMN_CN_MAP = {
@@ -37,7 +34,6 @@ COLUMN_CN_MAP = {
     "overspeed_modul_generator_speed_signal_2": "超速模块发电机转速信号2",
     "yaw_position": "偏航位置",
     "wind_speed": "风速",
-    "WindSpeed": "风速",
     "average_wind_vane_wind_direction_30s": "30秒平均风向",
     "generator_speed_momentary_to_gh": "发送给GH控制器的发电机瞬时转速",
     "gh_control.FB_GH_CONTROLLER_1.test_second_order": "GH控制器二阶测试信号",
@@ -204,7 +200,6 @@ COLUMN_CN_MAP = {
     "PowerLimitDemand": "功率限制需求",
     "GwCtrlPowerDemand": "金风控制器功率需求",
     "GridPower": "电网功率",
-    "yaw_position": "偏航位置"
     "TorqueDemand": "转矩需求",
     "CnvTorque": "变流器转矩",
     "GeneratorSpeedToGwCtrl": "发送给金风控制器的发电机转速",
@@ -365,24 +360,24 @@ COLUMN_CN_MAP = {
     "rTowAccBZero_g": "塔筒B向加速度零点(g)",
 }
 
-def get_name(col, cn):
-    return COLUMN_CN_MAP.get(col, col) if cn else col
-# ================== 工具函数 ==================
-def detect_encoding(file_content):
+# -------------------------- 核心工具函数 --------------------------
+def detect_encoding(file_path):
     """检测文件编码"""
     encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16', 'latin1']
     for enc in encodings:
         try:
-            file_content.decode(enc)
+            with open(file_path, 'r', encoding=enc) as f:
+                f.read(1000)
             return enc
         except UnicodeDecodeError:
             continue
     return 'utf-8'
 
-def parse_file_sections(file_content, encoding):
+def parse_file_sections(file_path, encoding):
     """解析B文件的模拟/数字信号分区"""
-    lines = file_content.decode(encoding).splitlines()
-    
+    with open(file_path, 'r', encoding=encoding, errors='replace') as f:
+        lines = f.readlines()
+
     analog_col_line = None
     analog_start = None
     analog_end = None
@@ -390,7 +385,7 @@ def parse_file_sections(file_content, encoding):
     digital_start = None
     digital_end = None
 
-    # 查找模拟信号列名行
+    # 定位模拟信号列名行
     for i, line in enumerate(lines):
         stripped = line.strip()
         if not stripped.startswith('#'):
@@ -405,18 +400,18 @@ def parse_file_sections(file_content, encoding):
     if analog_col_line is None:
         raise ValueError("未找到模拟信号列名行")
 
-    # 确定模拟信号数据起始行
+    # 定位模拟信号数据起始行
     analog_start = analog_col_line + 1
     while analog_start < len(lines) and lines[analog_start].strip().startswith('#'):
         analog_start += 1
     if analog_start >= len(lines):
         raise ValueError("模拟信号无数据行")
 
-    # 查找数字信号分区
+    # 定位数字信号分区
     for i in range(analog_start, len(lines)):
         line = lines[i].strip()
         if '# ------- digital signals' in line.lower():
-            # 查找数字信号列名行
+            # 找数字信号列名行
             for j in range(i+1, min(i+20, len(lines))):
                 l = lines[j].strip()
                 if l.startswith('#') and l.count(';') >= 10 and not any(kw in l.lower() for kw in ['buffersave', 'version', '-------']):
@@ -435,7 +430,7 @@ def parse_file_sections(file_content, encoding):
     else:
         analog_end = len(lines)
 
-    # 解析列名
+    # 提取列名
     analog_col_line_raw = lines[analog_col_line].lstrip('#').strip()
     analog_col_names = [c.strip() for c in analog_col_line_raw.split(';') if c.strip()]
 
@@ -448,296 +443,193 @@ def parse_file_sections(file_content, encoding):
             digital_col_names, digital_start, digital_end)
 
 def get_display_name(eng_name, translate=True):
-    """获取列的显示名称（中英文切换）"""
+    """获取列的显示名称（中文/英文）"""
     if not translate:
         return eng_name
     cn = COLUMN_CN_MAP.get(eng_name, "")
     return f"{cn} ({eng_name})" if cn else eng_name
 
-# ================== 主应用逻辑 ==================
+# -------------------------- Streamlit主逻辑 --------------------------
 def main():
-    st.set_page_config(page_title="风机绘图工具", layout="wide")
-    st.title("金风风机B文件绘图工具")
     st.set_page_config(
-        page_title="金风风机B文件绘图工具（Web版）",
-        page_icon="📊",
+        page_title="金风风机B文件绘图工具",
+        page_icon="🌬️",
         layout="wide"
     )
 
-    # 上传文件
-    f = st.file_uploader("上传B文件(txt/csv)", type=["txt","csv"])
-    if f:
-        try:
-            f.seek(0)
-            df = pd.read_csv(f, sep=";", comment="#", on_bad_lines="skip")
-            st.success(f"成功：{df.shape[0]}行 {df.shape[1]}列")
-    st.title("📊 金风风机B文件绘图工具（Web版）")
-    
-    # 初始化会话状态
-    if 'df_analog' not in st.session_state:
-        st.session_state.df_analog = None
-    if 'df_digital' not in st.session_state:
-        st.session_state.df_digital = None
-    if 'current_df' not in st.session_state:
-        st.session_state.current_df = None
-    if 'translate' not in st.session_state:
-        st.session_state.translate = True
+    st.title("🌬️ 金风风机B文件绘图工具")
 
-    # ========== 侧边栏配置 ==========
+    # 侧边栏：配置区
     with st.sidebar:
-        st.header("🔧 配置面板")
-        
-        # 1. 文件上传
+        st.header("📁 文件上传")
         uploaded_file = st.file_uploader(
-            "选择B文件（TXT/CSV）",
+            "选择B文件（.txt/.csv）",
             type=["txt", "csv"],
-            help="支持金风风机B格式的txt/csv数据文件"
+            help="支持金风风机B文件格式的TXT/CSV文件"
         )
 
-        # 2. 读取文件
-        if uploaded_file is not None:
-            try:
-                file_content = uploaded_file.getvalue()
-                encoding = detect_encoding(file_content)
-                (analog_col_names, analog_start, analog_end,
-                 digital_col_names, digital_start, digital_end) = parse_file_sections(file_content, encoding)
+        st.divider()
+        st.header("⚙️ 绘图配置")
+        translate = st.checkbox("显示中文列名", value=True, help="勾选后列名显示为「中文(英文)」格式")
+        plot_type = st.radio("绘图类型", ["折线图", "散点图"], horizontal=True)
+        show_preview = st.checkbox("显示数据预览", value=False)
 
-                # 解析模拟信号数据
-                lines = file_content.decode(encoding).splitlines()
-                analog_data_lines = lines[analog_start:analog_end]
-                analog_str = '\n'.join(analog_data_lines)
-                analog_io = io.StringIO(analog_str)
-                df_analog_raw = pd.read_csv(analog_io, sep=';', header=None, low_memory=False, na_values=["", " ", "NA", "N/A"])
-                
-                # 列数对齐
-                actual_analog_cols = df_analog_raw.shape[1]
-                if actual_analog_cols != len(analog_col_names):
-                    if actual_analog_cols > len(analog_col_names):
-                        df_analog_raw = df_analog_raw.iloc[:, :len(analog_col_names)]
+    # 主区域：数据处理 + 绘图
+    if uploaded_file is not None:
+        try:
+            # 保存上传文件到临时路径
+            import tempfile
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.txt') as tmp_file:
+                tmp_file.write(uploaded_file.getvalue())
+                tmp_file_path = tmp_file.name
+
+            # 检测编码 + 解析文件
+            encoding = detect_encoding(tmp_file_path)
+            (analog_col_names, analog_start, analog_end,
+             digital_col_names, digital_start, digital_end) = parse_file_sections(tmp_file_path, encoding)
+
+            # 读取模拟信号数据
+            with open(tmp_file_path, 'r', encoding=encoding) as f:
+                lines = f.readlines()
+            analog_data_lines = lines[analog_start:analog_end]
+            analog_str = ''.join(analog_data_lines)
+            analog_io = io.StringIO(analog_str)
+            df_analog_raw = pd.read_csv(analog_io, sep=';', header=None, low_memory=False, na_values=["", " ", "NA", "N/A"])
+
+            # 对齐列数
+            actual_analog_cols = df_analog_raw.shape[1]
+            if actual_analog_cols != len(analog_col_names):
+                if actual_analog_cols > len(analog_col_names):
+                    df_analog_raw = df_analog_raw.iloc[:, :len(analog_col_names)]
+                else:
+                    analog_col_names = analog_col_names[:actual_analog_cols]
+            df_analog_raw.columns = analog_col_names
+            df_analog = df_analog_raw.apply(pd.to_numeric, errors='coerce')
+
+            # 读取数字信号数据（如果有）
+            df_digital = None
+            has_digital = (digital_start is not None and digital_end is not None and len(digital_col_names) > 0)
+            if has_digital:
+                digital_data_lines = lines[digital_start:digital_end]
+                digital_str = ''.join(digital_data_lines)
+                digital_io = io.StringIO(digital_str)
+                df_digital_raw = pd.read_csv(digital_io, sep=';', header=None, low_memory=False, na_values=["", " ", "NA", "N/A"])
+                actual_digital_cols = df_digital_raw.shape[1]
+                if actual_digital_cols != len(digital_col_names):
+                    if actual_digital_cols > len(digital_col_names):
+                        df_digital_raw = df_digital_raw.iloc[:, :len(digital_col_names)]
                     else:
-                        analog_col_names = analog_col_names[:actual_analog_cols]
-                df_analog_raw.columns = analog_col_names
-                st.session_state.df_analog = df_analog_raw.apply(pd.to_numeric, errors='coerce')
+                        digital_col_names = digital_col_names[:actual_digital_cols]
+                df_digital_raw.columns = digital_col_names
+                df_digital = df_digital_raw.apply(pd.to_numeric, errors='coerce')
 
-                # 解析数字信号数据
-                st.session_state.df_digital = None
-                has_digital = (digital_start is not None and digital_end is not None and len(digital_col_names) > 0)
-                if has_digital:
-                    digital_data_lines = lines[digital_start:digital_end]
-                    digital_str = '\n'.join(digital_data_lines)
-                    digital_io = io.StringIO(digital_str)
-                    df_digital_raw = pd.read_csv(digital_io, sep=';', header=None, low_memory=False, na_values=["", " ", "NA", "N/A"])
-                    actual_digital_cols = df_digital_raw.shape[1]
-                    if actual_digital_cols != len(digital_col_names):
-                        if actual_digital_cols > len(digital_col_names):
-                            df_digital_raw = df_digital_raw.iloc[:, :len(digital_col_names)]
-                        else:
-                            digital_col_names = digital_col_names[:actual_digital_cols]
-                    df_digital_raw.columns = digital_col_names
-                    st.session_state.df_digital = df_digital_raw.apply(pd.to_numeric, errors='coerce')
-
-                st.success(f"文件读取成功！\n模拟信号：{len(st.session_state.df_analog)}行 x {len(st.session_state.df_analog.columns)}列" +
-                           (f"\n数字信号：{len(st.session_state.df_digital)}行 x {len(st.session_state.df_digital.columns)}列" if has_digital else ""))
-
-            except Exception as e:
-                st.error(f"文件读取失败：{str(e)}")
-                st.session_state.df_analog = None
-                st.session_state.df_digital = None
-
-        # 3. 数据集选择
-        if st.session_state.df_analog is not None:
+            # 数据集选择
             dataset_options = ["模拟信号"]
-            if st.session_state.df_digital is not None:
+            if has_digital:
                 dataset_options.append("数字信号")
-            
-            selected_dataset = st.selectbox(
-                "选择数据集",
-                dataset_options,
-                index=0,
-                help="选择要可视化的数据集类型"
-            )
+            selected_dataset = st.selectbox("📊 选择数据集", dataset_options)
 
-            # 更新当前数据集
+            # 加载对应数据集
             if selected_dataset == "模拟信号":
-                st.session_state.current_df = st.session_state.df_analog
+                df = df_analog
+                col_names = analog_col_names
             else:
-                st.session_state.current_df = st.session_state.df_digital
+                df = df_digital
+                col_names = digital_col_names
 
-            # 4. 中英文切换
-            st.session_state.translate = st.checkbox(
-                "显示中文列名",
-                value=True,
-                help="勾选后列名显示为「中文(英文)」格式，取消则显示纯英文"
-            )
+            # 显示数据基本信息
+            st.success(f"✅ 读取成功：{selected_dataset} - {len(df)}行 x {len(df.columns)}列")
 
-            # 5. X轴选择
-            all_cols = st.session_state.current_df.columns.tolist()
-            display_names = [get_display_name(col, st.session_state.translate) for col in all_cols]
-            x_col_display = st.selectbox(
-                "选择X轴列",
-                display_names,
-                index=display_names.index(get_display_name('timestamp', st.session_state.translate)) if 'timestamp' in all_cols else 0,
-                help="通常选择时间戳（timestamp/Time）作为X轴"
-            )
-            # 反向映射回原始英文列名
-            x_col_name = all_cols[display_names.index(x_col_display)]
+            # 数据预览
+            if show_preview:
+                with st.expander("📈 数据预览（前10行）", expanded=True):
+                    st.dataframe(df.head(10), use_container_width=True)
 
-            # 6. 列搜索与选择
-            st.subheader("📋 Y轴列选择")
-            search_key = st.text_input("搜索列名", placeholder="输入关键词筛选列...")
+            # 列名处理（中文/英文）
+            display_names = [get_display_name(col, translate) for col in col_names]
+            col_name_map = {disp: orig for disp, orig in zip(display_names, col_names)}
 
-            # 控制面板
-            with st.sidebar:
-                cn = st.checkbox("中文列名", True)
-                x = st.selectbox("X轴", df.columns)
-                ys = st.multiselect("Y轴(可多选)", df.columns)
-                t = st.radio("图表类型", ["折线图", "散点图"])
-
-                if st.button("绘图") and ys:
-                    d = df[[x]+ys].dropna()
-                    c = st.columns(len(ys))
-                    for i,y in enumerate(ys):
-                        with c[i]:
-                            st.subheader(get_name(y, cn))
-                            if t == "折线图":
-                                st.line_chart(d, x=x, y=y)
-                            else:
-                                st.scatter_chart(d, x=x, y=y)
-        except:
-            st.error("文件解析失败")
-            # 筛选列
-            filtered_cols = []
-            filtered_display = []
-            for col, disp in zip(all_cols, display_names):
-                if search_key.lower() in col.lower() or search_key.lower() in disp.lower():
-                    filtered_cols.append(col)
-                    filtered_display.append(disp)
-            
-            # 多选Y轴列
-            selected_display = st.multiselect(
-                "选择要绘制的列（可多选）",
-                filtered_display,
-                help="按住Ctrl/Shift可多选列"
-            )
-            selected_cols = [filtered_cols[filtered_display.index(disp)] for disp in selected_display]
-
-            # 7. 绘图类型选择
-            plot_type = st.radio(
-                "选择绘图类型",
-                ["折线图", "散点图"],
-                index=0,
-                horizontal=True
-            )
-
-            # 8. 功能按钮
+            # X轴选择
+            st.subheader("🎯 轴配置")
             col1, col2 = st.columns(2)
             with col1:
-                plot_btn = st.button("🎨 绘制图表", type="primary")
-            with col2:
-                preview_btn = st.button("📈 数据预览/诊断")
-
-    # ========== 主内容区 ==========
-    if uploaded_file is None:
-        st.info("请在左侧面板上传金风风机B格式的TXT/CSV文件开始分析")
-        # 显示使用说明
-        with st.expander("📖 使用说明"):
-            st.markdown("""
-            ### 金风风机B文件绘图工具（Web版）使用说明
-            1. **文件上传**：点击左侧「选择B文件」上传txt/csv格式的风机B文件
-            2. **数据集选择**：文件解析后可选择「模拟信号」/「数字信号」数据集
-            3. **列名切换**：勾选「显示中文列名」可切换列名的中英文显示
-            4. **X轴选择**：选择作为X轴的列（推荐选择时间戳timestamp）
-            5. **Y轴选择**：通过搜索框筛选列，多选需要绘制的Y轴列
-            6. **绘图类型**：选择折线图/散点图
-            7. **功能按钮**：
-               - 绘制图表：生成选中列的可视化图表
-               - 数据预览：查看数据的基本信息和诊断结果
-            """)
-        
-        with st.expander("ℹ️ 关于"):
-            st.markdown("""
-            ### 关于工具
-            - 版本：2.2（Web版）
-            - 适配：金风风机B格式数据文件
-            - 功能：解析模拟/数字信号、列名中英文映射、多列可视化、数据诊断
-            """)
-        return
-
-    # 数据预览/诊断功能
-    if preview_btn and st.session_state.current_df is not None:
-        st.subheader("📈 数据预览/诊断")
-        tab1, tab2, tab3 = st.tabs(["数据预览", "数据信息", "缺失值分析"])
-        
-        with tab1:
-            st.dataframe(st.session_state.current_df.head(50), use_container_width=True)
-        
-        with tab2:
-            buffer = io.StringIO()
-            st.session_state.current_df.info(buf=buffer)
-            st.text(buffer.getvalue())
-        
-        with tab3:
-            missing_stats = st.session_state.current_df.isnull().sum()
-            missing_stats = missing_stats[missing_stats > 0]
-            if len(missing_stats) > 0:
-                st.write("### 缺失值统计（仅显示有缺失值的列）")
-                st.dataframe(
-                    pd.DataFrame({
-                        "缺失值数量": missing_stats,
-                        "缺失值占比(%)": (missing_stats / len(st.session_state.current_df) * 100).round(2)
-                    }),
-                    use_container_width=True
+                x_display_options = display_names
+                selected_x_display = st.selectbox(
+                    "X轴列（通常选时间戳）",
+                    x_display_options,
+                    index=x_display_options.index(get_display_name("timestamp", translate)) if "timestamp" in col_names else 0
                 )
-            else:
-                st.success("✅ 数据无缺失值")
+                x_col = col_name_map[selected_x_display]
 
-    # 绘图功能
-    if plot_btn and st.session_state.current_df is not None and len(selected_cols) > 0:
-        st.subheader(f"🎨 绘图结果：{plot_type}")
-        
-        # 准备绘图数据
-        df_plot = st.session_state.current_df.copy()
-        x_data = df_plot[x_col_name]
-        
-        # 创建图表
-        fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
-        colors = list(mcolors.TABLEAU_COLORS.values()) + list(mcolors.BASE_COLORS.values())
-        
-        for i, col in enumerate(selected_cols):
-            y_data = df_plot[col]
-            color = colors[i % len(colors)]
-            disp_name = get_display_name(col, st.session_state.translate)
-            
-            if plot_type == "折线图":
-                ax.plot(x_data, y_data, label=disp_name, color=color, linewidth=1)
-            else:
-                ax.scatter(x_data, y_data, label=disp_name, color=color, s=1, alpha=0.8)
-        
-        # 图表美化
-        ax.set_xlabel(get_display_name(x_col_name, st.session_state.translate), fontsize=10)
-        ax.set_ylabel("数值", fontsize=10)
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-        
-        # 显示图表
-        st.pyplot(fig)
+            # Y轴多选
+            with col2:
+                selected_y_display = st.multiselect(
+                    "Y轴列（可多选）",
+                    display_names,
+                    default=[get_display_name("wind_speed", translate)] if "wind_speed" in col_names else []
+                )
+                y_cols = [col_name_map[disp] for disp in selected_y_display]
 
-        # 下载图表按钮
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
-        buf.seek(0)
-        st.download_button(
-            label="📥 下载图表",
-            data=buf,
-            file_name=f"风机数据_{plot_type}_{pd.Timestamp.now().strftime('%Y%m%d%H%M%S')}.png",
-            mime="image/png"
-        )
+            # 绘图逻辑
+            if st.button("🚀 生成图表", type="primary") and y_cols:
+                # 清理缺失值
+                plot_df = df[[x_col] + y_cols].dropna()
+                if len(plot_df) == 0:
+                    st.error("❌ 所选列无有效数据（全为缺失值），无法绘图！")
+                else:
+                    # 创建图表
+                    fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
+                    colors = list(mcolors.TABLEAU_COLORS.values()) + list(mcolors.BASE_COLORS.values())
 
-    # 无选中列的提示
-    if plot_btn and len(selected_cols) == 0 and st.session_state.current_df is not None:
-        st.warning("⚠️ 请至少选择一个Y轴列进行绘图")
+                    for idx, y_col in enumerate(y_cols):
+                        y_display = get_display_name(y_col, translate)
+                        if plot_type == "折线图":
+                            ax.plot(plot_df[x_col], plot_df[y_col],
+                                    label=y_display, color=colors[idx % len(colors)],
+                                    linewidth=1.5, alpha=0.8)
+                        else:
+                            ax.scatter(plot_df[x_col], plot_df[y_col],
+                                      label=y_display, color=colors[idx % len(colors)],
+                                      s=2, alpha=0.6)
+
+                    # 图表样式配置
+                    ax.set_xlabel(get_display_name(x_col, translate), fontsize=10)
+                    ax.set_ylabel("数值", fontsize=10)
+                    ax.set_title(f"{selected_dataset} - {plot_type}", fontsize=12, fontweight='bold')
+                    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+                    ax.grid(True, alpha=0.3)
+                    plt.tight_layout()
+
+                    # 显示图表
+                    st.pyplot(fig)
+
+        except Exception as e:
+            st.error(f"❌ 处理文件失败：{str(e)}")
+            st.exception(e)
+    else:
+        # 初始提示
+        st.info("👆 请在左侧侧边栏上传金风风机B文件（.txt/.csv格式）")
+
+        # 使用说明
+        with st.expander("📖 使用说明", expanded=True):
+            st.markdown("""
+            ### 金风风机B文件绘图工具 使用说明
+            1. 点击左侧「选择B文件」上传.txt/.csv格式的金风风机B文件；
+            2. 可选「显示中文列名」开关（默认开启，列名显示为「中文(英文)」）；
+            3. 选择「绘图类型」（折线图/散点图）；
+            4. 选择数据集（模拟信号/数字信号，仅文件包含数字信号时显示）；
+            5. 选择X轴列（通常选时间戳）、Y轴列（可多选）；
+            6. 点击「生成图表」查看可视化结果；
+            7. 可选「显示数据预览」查看前10行原始数据。
+            """)
+
+        # 关于信息
+        with st.expander("ℹ️ 关于", expanded=False):
+            st.markdown("""
+            金风风机B文件绘图工具  
+            版本：2.2（Streamlit版）  
+            适配：金风风机B文件格式解析、多列可视化  
+            """)
 
 if __name__ == "__main__":
-    main()
     main()
