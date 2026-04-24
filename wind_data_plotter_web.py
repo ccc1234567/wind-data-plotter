@@ -584,7 +584,7 @@ def main():
                     plt.rcParams['axes.unicode_minus'] = False
                     plt.rcParams['font.size'] = 12
                     fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
-                    colors = list(mcolors.TABLEAU_COLORS.values()) + list(mcolors.BASE_COLORS.values())
+                    colors = list(mcolors.TABLEAU_COLORS.values())
 
                     for idx, y_col in enumerate(y_cols):
                         y_display = get_display_name(y_col, translate)
