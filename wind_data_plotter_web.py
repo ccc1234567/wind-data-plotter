@@ -581,6 +581,8 @@ def main():
                 else:
                     # 创建图表
                     fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
+                    plt.rcParams['font.sans-serif'] = ['SimHei', 'PingFang SC', 'Noto Sans CJK SC']
+                    plt.rcParams['axes.unicode_minus'] = False
                     colors = list(mcolors.TABLEAU_COLORS.values()) + list(mcolors.BASE_COLORS.values())
 
                     for idx, y_col in enumerate(y_cols):
