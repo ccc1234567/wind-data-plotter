@@ -9,10 +9,10 @@ import platform
 import io
 import os
 import glob
+import tempfile
 
-# ================== 中英文列名映射表（完整保留，省略以节省篇幅）==================
-# 注：此处为原文件中的 COLUMN_CN_MAP（内容过长未重复粘贴，实际使用时请保留原映射表）
-# ================== 以下仅作示意，实际代码必须包含完整映射表 ==================
+# ================== 中英文列名映射表（请根据您的实际需要替换为完整映射）==================
+# 提示：您可以将之前已有的 COLUMN_CN_MAP 完整内容粘贴到此处替换下面的示例字典
 COLUMN_CN_MAP = {
     # 模拟信号（Analog Signals）
     "timestamp": "时间戳",
@@ -363,60 +363,78 @@ COLUMN_CN_MAP = {
     "MinPitchEvent": "最小桨角事件",
     "rTowAccAZero_g": "塔筒A向加速度零点(g)",
     "rTowAccBZero_g": "塔筒B向加速度零点(g)",
-}
 
-# -------------------------- 新增：字体加载函数 --------------------------
+def get_display_name(eng_name, translate=True):
+    """获取列的显示名称（中文/英文）"""
+    if not translate:
+        return eng_name
+    cn = COLUMN_CN_MAP.get(eng_name, "")
+    return f"{cn} ({eng_name})" if cn else eng_name
+
+# -------------------------- 字体加载函数（优先使用 fonts/NotoSansHK）--------------------------
 def load_custom_font():
     """
-    加载 fonts 文件夹下的 NotoSansHK 字体，并设置为 Matplotlib 全局字体。
-    若未找到，则尝试系统默认中文字体，并给出警告。
+    加载 fonts 文件夹下的 NotoSansHK 字体，若失败则自动搜索系统支持的中文字体。
     """
-    # 获取当前脚本所在目录（兼容 Streamlit 运行）
     base_dir = os.path.dirname(os.path.abspath(__file__))
     fonts_dir = os.path.join(base_dir, "fonts")
     
-    # 查找 NotoSansHK 字体文件（支持常见扩展名）
-    font_paths = []
+    custom_font_loaded = False
     if os.path.exists(fonts_dir):
+        font_files = []
         for ext in ['*.ttf', '*.otf', '*.ttc']:
-            font_paths.extend(glob.glob(os.path.join(fonts_dir, ext)))
-        # 优先选择文件名包含 "NotoSansHK" 的字体
-        noto_fonts = [f for f in font_paths if 'NotoSansHK' in os.path.basename(f)]
+            font_files.extend(glob.glob(os.path.join(fonts_dir, ext)))
+        noto_fonts = [f for f in font_files if 'NotoSansHK' in os.path.basename(f)]
         if noto_fonts:
-            font_path = noto_fonts[0]  # 取第一个匹配的字体
+            font_path = noto_fonts[0]
+            try:
+                fm.fontManager.addfont(font_path)
+                prop = fm.FontProperties(fname=font_path)
+                font_name = prop.get_name()
+                plt.rcParams['font.family'] = font_name
+                plt.rcParams['axes.unicode_minus'] = False
+                st.success(f"✅ 已加载自定义字体：{os.path.basename(font_path)}（{font_name}）")
+                custom_font_loaded = True
+            except Exception as e:
+                st.warning(f"⚠️ 加载自定义字体失败：{e}")
+
+    if not custom_font_loaded:
+        # 自动搜索系统常见中文字体
+        chinese_font_names = [
+            "Noto Sans CJK SC", "Noto Sans CJK TC", "Noto Sans CJK JP",
+            "SimHei", "Microsoft YaHei", "WenQuanYi Zen Hei",
+            "PingFang SC", "Droid Sans Fallback", "sans-serif"
+        ]
+        found_font = None
+        for font in chinese_font_names:
+            available_fonts = [f.name for f in fm.fontManager.ttflist]
+            if font in available_fonts:
+                found_font = font
+                break
+        if found_font is None:
+            from matplotlib.font_manager import findfont, FontProperties
+            test_fonts = ['Noto Sans CJK SC', 'WenQuanYi Zen Hei', 'SimHei']
+            for fname in test_fonts:
+                try:
+                    fp = FontProperties(family=fname)
+                    if findfont(fp, fallback_to_default=False) is not None:
+                        found_font = fname
+                        break
+                except:
+                    continue
+        
+        if found_font:
+            plt.rcParams['font.family'] = found_font
+            plt.rcParams['axes.unicode_minus'] = False
+            st.info(f"ℹ️ 未找到自定义 NotoSansHK 字体，使用系统字体：{found_font}")
         else:
-            font_path = None
-    else:
-        font_path = None
+            plt.rcParams['font.family'] = 'sans-serif'
+            plt.rcParams['axes.unicode_minus'] = False
+            st.warning("⚠️ 未能找到中文字体，图表中的中文可能显示为方框！请将 NotoSansHK 字体放入 fonts 文件夹。")
 
-    if font_path and os.path.exists(font_path):
-        # 添加字体到 Matplotlib 字体管理器
-        fm.fontManager.addfont(font_path)
-        # 获取字体的 family 名称（从字体属性中读取）
-        prop = fm.FontProperties(fname=font_path)
-        font_name = prop.get_name()
-        # 设置全局字体
-        plt.rcParams['font.family'] = font_name
-        plt.rcParams['axes.unicode_minus'] = False
-        st.success(f"✅ 已加载自定义字体：{os.path.basename(font_path)}（{font_name}）")
-        return True
-    else:
-        # 回退方案：尝试系统常见中文字体
-        fallback_fonts = {
-            "Windows": "Microsoft YaHei",
-            "Darwin": "PingFang SC",
-            "Linux": "WenQuanYi Micro Hei"
-        }
-        system = platform.system()
-        fallback_font = fallback_fonts.get(system, "sans-serif")
-        plt.rcParams['font.family'] = fallback_font
-        plt.rcParams['axes.unicode_minus'] = False
-        st.warning(f"⚠️ 未找到 NotoSansHK 字体，使用系统回退字体：{fallback_font}")
-        return False
-
-# -------------------------- 核心工具函数（与原代码一致）--------------------------
+# -------------------------- 核心工具函数 --------------------------
 def detect_encoding(file_path):
-    """检测文件编码（省略，与原代码相同）"""
+    """检测文件编码"""
     encodings = ['utf-8', 'gbk', 'gb2312', 'utf-16', 'latin1']
     for enc in encodings:
         try:
@@ -428,18 +446,77 @@ def detect_encoding(file_path):
     return 'utf-8'
 
 def parse_file_sections(file_path, encoding):
-    """解析B文件的模拟/数字信号分区（省略，与原代码相同）"""
-    # ... 原函数内容 ...
-    pass  # 实际代码中请保留原有实现
+    """解析B文件的模拟/数字信号分区"""
+    with open(file_path, 'r', encoding=encoding, errors='replace') as f:
+        lines = f.readlines()
 
-def get_display_name(eng_name, translate=True):
-    """获取列的显示名称（中文/英文）（省略，与原代码相同）"""
-    # ... 原函数内容 ...
-    pass
+    analog_col_line = None
+    analog_start = None
+    analog_end = None
+    digital_col_line = None
+    digital_start = None
+    digital_end = None
+
+    # 定位模拟信号列名行
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith('#'):
+            break
+        if stripped.count(';') >= 10:
+            lower = stripped.lower()
+            if any(kw in lower for kw in ['buffersave', 'version', '-------', 'analog signals']):
+                continue
+            analog_col_line = i
+            break
+
+    if analog_col_line is None:
+        raise ValueError("未找到模拟信号列名行")
+
+    # 定位模拟信号数据起始行
+    analog_start = analog_col_line + 1
+    while analog_start < len(lines) and lines[analog_start].strip().startswith('#'):
+        analog_start += 1
+    if analog_start >= len(lines):
+        raise ValueError("模拟信号无数据行")
+
+    # 定位数字信号分区
+    for i in range(analog_start, len(lines)):
+        line = lines[i].strip()
+        if '# ------- digital signals' in line.lower():
+            # 找数字信号列名行
+            for j in range(i+1, min(i+20, len(lines))):
+                l = lines[j].strip()
+                if l.startswith('#') and l.count(';') >= 10 and not any(kw in l.lower() for kw in ['buffersave', 'version', '-------']):
+                    digital_col_line = j
+                    break
+            if digital_col_line is not None:
+                digital_start = digital_col_line + 1
+                while digital_start < len(lines) and lines[digital_start].strip().startswith('#'):
+                    digital_start += 1
+                digital_end = len(lines)
+            break
+
+    # 确定模拟信号结束行
+    if digital_col_line is not None:
+        analog_end = digital_col_line - 1
+    else:
+        analog_end = len(lines)
+
+    # 提取列名
+    analog_col_line_raw = lines[analog_col_line].lstrip('#').strip()
+    analog_col_names = [c.strip() for c in analog_col_line_raw.split(';') if c.strip()]
+
+    digital_col_names = []
+    if digital_col_line is not None:
+        digital_col_line_raw = lines[digital_col_line].lstrip('#').strip()
+        digital_col_names = [c.strip() for c in digital_col_line_raw.split(';') if c.strip()]
+
+    return (analog_col_names, analog_start, analog_end,
+            digital_col_names, digital_start, digital_end)
 
 # -------------------------- Streamlit主逻辑 --------------------------
 def main():
-    # 首先加载自定义字体（必须在任何绘图操作之前）
+    # 加载字体（必须在任何绘图之前）
     load_custom_font()
 
     st.set_page_config(
@@ -450,7 +527,7 @@ def main():
 
     st.title("🌬️ 金风风机B文件绘图工具")
 
-    # 侧边栏：文件上传与配置（保持不变）
+    # 侧边栏：配置区
     with st.sidebar:
         st.header("📁 文件上传")
         uploaded_file = st.file_uploader(
@@ -465,15 +542,15 @@ def main():
         plot_type = st.radio("绘图类型", ["折线图", "散点图"], horizontal=True)
         show_preview = st.checkbox("显示数据预览", value=False)
 
-    # 主区域：数据处理 + 绘图（与原代码逻辑完全相同，仅移除了旧的系统字体选择）
+    # 主区域：数据处理 + 绘图
     if uploaded_file is not None:
         try:
             # 保存上传文件到临时路径
-            import tempfile
             with tempfile.NamedTemporaryFile(delete=False, suffix='.txt') as tmp_file:
                 tmp_file.write(uploaded_file.getvalue())
                 tmp_file_path = tmp_file.name
 
+            # 检测编码 + 解析文件
             encoding = detect_encoding(tmp_file_path)
             (analog_col_names, analog_start, analog_end,
              digital_col_names, digital_start, digital_end) = parse_file_sections(tmp_file_path, encoding)
@@ -513,11 +590,13 @@ def main():
                 df_digital_raw.columns = digital_col_names
                 df_digital = df_digital_raw.apply(pd.to_numeric, errors='coerce')
 
+            # 数据集选择
             dataset_options = ["模拟信号"]
             if has_digital:
                 dataset_options.append("数字信号")
             selected_dataset = st.selectbox("📊 选择数据集", dataset_options)
 
+            # 加载对应数据集
             if selected_dataset == "模拟信号":
                 df = df_analog
                 col_names = analog_col_names
@@ -525,40 +604,39 @@ def main():
                 df = df_digital
                 col_names = digital_col_names
 
+            # 显示数据基本信息
             st.success(f"✅ 读取成功：{selected_dataset} - {len(df)}行 x {len(df.columns)}列")
 
+            # 数据预览
             if show_preview:
                 with st.expander("📈 数据预览（前10行）", expanded=True):
                     st.dataframe(df.head(10), use_container_width=True)
 
+            # 生成显示名称（支持中文/英文切换）
             display_names = [get_display_name(col, translate) for col in col_names]
             col_name_map = {disp: orig for disp, orig in zip(display_names, col_names)}
 
+            # X轴选择
             st.subheader("🎯 轴配置")
             col1, col2 = st.columns(2)
             with col1:
-                x_display_options = display_names
-                selected_x_display = st.selectbox(
-                    "X轴列（通常选时间戳）",
-                    x_display_options,
-                    index=x_display_options.index(get_display_name("timestamp", translate)) if "timestamp" in col_names else 0
-                )
+                # 默认选中 timestamp 列（如果存在）
+                default_x_display = get_display_name("timestamp", translate) if "timestamp" in col_names else display_names[0]
+                selected_x_display = st.selectbox("X轴列（通常选时间戳）", display_names, index=display_names.index(default_x_display))
                 x_col = col_name_map[selected_x_display]
 
+            # Y轴多选
             with col2:
-                selected_y_display = st.multiselect(
-                    "Y轴列（可多选）",
-                    display_names,
-                    default=[get_display_name("wind_speed", translate)] if "wind_speed" in col_names else []
-                )
+                default_y_display = [get_display_name("wind_speed", translate)] if "wind_speed" in col_names else []
+                selected_y_display = st.multiselect("Y轴列（可多选）", display_names, default=default_y_display)
                 y_cols = [col_name_map[disp] for disp in selected_y_display]
 
+            # 绘图逻辑
             if st.button("🚀 生成图表", type="primary") and y_cols:
                 plot_df = df[[x_col] + y_cols].dropna()
                 if len(plot_df) == 0:
                     st.error("❌ 所选列无有效数据（全为缺失值），无法绘图！")
                 else:
-                    # 创建图表（字体已在 load_custom_font 中全局配置，无需额外设置）
                     fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
                     colors = list(mcolors.TABLEAU_COLORS.values())
 
@@ -573,20 +651,25 @@ def main():
                                       label=y_display, color=colors[idx % len(colors)],
                                       s=2, alpha=0.6)
 
-                    # 设置轴标签和标题（字体自动继承全局配置）
-                    ax.set_xlabel(get_display_name(x_col, translate), fontsize=10)
+                    # 图表样式
+                    ax.set_xlabel(selected_x_display, fontsize=10)
                     ax.set_ylabel("数值", fontsize=10)
                     ax.set_title(f"{selected_dataset} - {plot_type}", fontsize=12, fontweight='bold')
                     ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
                     ax.grid(True, alpha=0.3)
                     plt.tight_layout()
+
+                    # 显示图表
                     st.pyplot(fig)
 
         except Exception as e:
             st.error(f"❌ 处理文件失败：{str(e)}")
             st.exception(e)
     else:
+        # 初始提示
         st.info("👆 请在左侧侧边栏上传金风风机B文件（.txt/.csv格式）")
+
+        # 使用说明
         with st.expander("📖 使用说明", expanded=True):
             st.markdown("""
             ### 金风风机B文件绘图工具 使用说明
@@ -598,10 +681,12 @@ def main():
             6. 点击「生成图表」查看可视化结果；
             7. 可选「显示数据预览」查看前10行原始数据。
             """)
+
+        # 关于信息
         with st.expander("ℹ️ 关于", expanded=False):
             st.markdown("""
             金风风机B文件绘图工具  
-            版本：2.3（Streamlit版 + 自定义字体支持）  
+            版本：2.3（含中英文切换）  
             适配：金风风机B文件格式解析、多列可视化  
             字体：优先使用 fonts/NotoSansHK 字体文件  
             """)
