@@ -7,6 +7,9 @@ import sys
 import platform
 import io
 
+plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']  # 优先微软雅黑/黑体
+plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示为方块的问题
+plt.rcParams['font.family'] = 'sans-serif'
 # ================== 中英文列名映射表（完整保留）==================
 COLUMN_CN_MAP = {
     # 模拟信号（Analog Signals）
