@@ -4,15 +4,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.font_manager as fm
-import sys
-import platform
 import io
 import os
 import glob
 import tempfile
 
-# ================== 中英文列名映射表（请根据您的实际需要替换为完整映射）==================
-# 提示：您可以将之前已有的 COLUMN_CN_MAP 完整内容粘贴到此处替换下面的示例字典
+# ================== 中英文列名映射表（请将您的完整映射粘贴至此）==================
+# 注意：此处仅作示例，实际使用时请替换为您之前完整的 COLUMN_CN_MAP 字典
 COLUMN_CN_MAP = {
     # 模拟信号（Analog Signals）
     "timestamp": "时间戳",
@@ -364,6 +362,7 @@ COLUMN_CN_MAP = {
     "rTowAccAZero_g": "塔筒A向加速度零点(g)",
     "rTowAccBZero_g": "塔筒B向加速度零点(g)",
 }
+
 def get_display_name(eng_name, translate=True):
     """获取列的显示名称（中文/英文）"""
     if not translate:
@@ -371,66 +370,41 @@ def get_display_name(eng_name, translate=True):
     cn = COLUMN_CN_MAP.get(eng_name, "")
     return f"{cn} ({eng_name})" if cn else eng_name
 
-# -------------------------- 字体加载函数（优先使用 fonts/NotoSansHK）--------------------------
+# -------------------------- 严格使用指定字体（NotoSansHK）--------------------------
 def load_custom_font():
     """
-    加载 fonts 文件夹下的 NotoSansHK 字体，若失败则自动搜索系统支持的中文字体。
+    只加载 fonts 文件夹下的 NotoSansHK 字体。
+    若找不到，则发出警告，不进行任何回退。
     """
     base_dir = os.path.dirname(os.path.abspath(__file__))
     fonts_dir = os.path.join(base_dir, "fonts")
     
-    custom_font_loaded = False
+    font_path = None
     if os.path.exists(fonts_dir):
-        font_files = []
         for ext in ['*.ttf', '*.otf', '*.ttc']:
-            font_files.extend(glob.glob(os.path.join(fonts_dir, ext)))
-        noto_fonts = [f for f in font_files if 'NotoSansHK' in os.path.basename(f)]
-        if noto_fonts:
-            font_path = noto_fonts[0]
-            try:
-                fm.fontManager.addfont(font_path)
-                prop = fm.FontProperties(fname=font_path)
-                font_name = prop.get_name()
-                plt.rcParams['font.family'] = font_name
-                plt.rcParams['axes.unicode_minus'] = False
-                st.success(f"✅ 已加载自定义字体：{os.path.basename(font_path)}（{font_name}）")
-                custom_font_loaded = True
-            except Exception as e:
-                st.warning(f"⚠️ 加载自定义字体失败：{e}")
-
-    if not custom_font_loaded:
-        # 自动搜索系统常见中文字体
-        chinese_font_names = [
-            "Noto Sans CJK SC", "Noto Sans CJK TC", "Noto Sans CJK JP",
-            "SimHei", "Microsoft YaHei", "WenQuanYi Zen Hei",
-            "PingFang SC", "Droid Sans Fallback", "sans-serif"
-        ]
-        found_font = None
-        for font in chinese_font_names:
-            available_fonts = [f.name for f in fm.fontManager.ttflist]
-            if font in available_fonts:
-                found_font = font
+            matches = glob.glob(os.path.join(fonts_dir, ext))
+            for match in matches:
+                if 'NotoSansHK' in os.path.basename(match):
+                    font_path = match
+                    break
+            if font_path:
                 break
-        if found_font is None:
-            from matplotlib.font_manager import findfont, FontProperties
-            test_fonts = ['Noto Sans CJK SC', 'WenQuanYi Zen Hei', 'SimHei']
-            for fname in test_fonts:
-                try:
-                    fp = FontProperties(family=fname)
-                    if findfont(fp, fallback_to_default=False) is not None:
-                        found_font = fname
-                        break
-                except:
-                    continue
-        
-        if found_font:
-            plt.rcParams['font.family'] = found_font
+    
+    if font_path and os.path.exists(font_path):
+        try:
+            fm.fontManager.addfont(font_path)
+            prop = fm.FontProperties(fname=font_path)
+            font_name = prop.get_name()
+            plt.rcParams['font.family'] = font_name
             plt.rcParams['axes.unicode_minus'] = False
-            st.info(f"ℹ️ 未找到自定义 NotoSansHK 字体，使用系统字体：{found_font}")
-        else:
-            plt.rcParams['font.family'] = 'sans-serif'
-            plt.rcParams['axes.unicode_minus'] = False
-            st.warning("⚠️ 未能找到中文字体，图表中的中文可能显示为方框！请将 NotoSansHK 字体放入 fonts 文件夹。")
+            st.success(f"✅ 已加载指定字体：{os.path.basename(font_path)}（{font_name}）")
+        except Exception as e:
+            st.error(f"❌ 加载字体失败：{e}")
+            st.warning("⚠️ 将使用默认字体，中文可能无法正确显示。")
+    else:
+        st.warning("⚠️ 未找到 NotoSansHK 字体文件！")
+        st.info("请确保在程序根目录下创建 `fonts` 文件夹，并放入 NotoSansHK 字体文件（例如 NotoSansHK-Regular.ttf）。")
+        st.warning("当前将使用 Matplotlib 默认字体，图表中的中文可能显示为方框。")
 
 # -------------------------- 核心工具函数 --------------------------
 def detect_encoding(file_path):
@@ -686,9 +660,9 @@ def main():
         with st.expander("ℹ️ 关于", expanded=False):
             st.markdown("""
             金风风机B文件绘图工具  
-            版本：2.3（含中英文切换）  
+            版本：2.3（严格使用自定义字体）  
             适配：金风风机B文件格式解析、多列可视化  
-            字体：优先使用 fonts/NotoSansHK 字体文件  
+            字体：只使用 fonts/NotoSansHK 字体文件，无自动回退  
             """)
 
 if __name__ == "__main__":
