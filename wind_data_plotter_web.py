@@ -598,8 +598,10 @@ def main():
                         font_name = "WenQuanYi Micro Hei"  # 文泉驿微米黑
         
                     # 全局设置字体
-                    plt.rcParams['font.family'] = font_name
-                    plt.rcParams['font.size'] = 10
+                    # 替换上述「全局设置字体」部分为以下代码（Windows 示例）
+                    font_path = "C:/Windows/Fonts/msyh.ttc"  # 微软雅黑字体路径
+                    font_prop = fm.FontProperties(fname=font_path)
+                    plt.rcParams['font.family'] = font_prop.get_name()
 
                     # 创建图表
                     fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
